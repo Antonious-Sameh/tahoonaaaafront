@@ -1,0 +1,114 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  /* Matches the manifest's background_color / the login & loading screens'
+     bg-slate-950 — avoids a white flash on first paint (before React
+     mounts) and during iOS rubber-band overscroll bounce in standalone mode. */
+  background-color: #020617;
+}
+
+body {
+  font-family: "Cairo", sans-serif;
+  overflow-x: clip;
+  /* Landscape-orientation safe area (notch/rounded corners on the side) —
+     applied globally since it covers every screen, including the login
+     page which isn't wrapped by AppLayout. Top/bottom safe areas are
+     handled per-component instead (see AppLayout.jsx, LoginPage.jsx,
+     App.jsx's loading screen) since padding the whole page top/bottom
+     would add unwanted blank space on every scrollable view. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/*
+  ---break---
+*/
+
+@layer base {
+  :root {
+    --background: 220 16% 96%;
+    --foreground: 222 39% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 39% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 39% 11%;
+    --primary: 217 91% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 30% 94%;
+    --secondary-foreground: 217 91% 38%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 218 11% 48%;
+    --accent: 217 30% 92%;
+    --accent-foreground: 217 91% 38%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 88%;
+    --input: 220 13% 86%;
+    --ring: 217 91% 52%;
+    --radius: 0.5rem;
+    --sidebar-background: 222 45% 10%;
+    --sidebar-foreground: 220 14% 82%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 38% 15%;
+    --sidebar-accent-foreground: 220 14% 95%;
+    --sidebar-border: 222 35% 16%;
+    --sidebar-ring: 217 91% 60%;
+  }
+  .dark {
+    --background: 222 44% 8%;
+    --foreground: 220 14% 94%;
+    --card: 222 44% 11%;
+    --card-foreground: 220 14% 94%;
+    --popover: 222 44% 11%;
+    --popover-foreground: 220 14% 94%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 35% 18%;
+    --secondary-foreground: 220 14% 94%;
+    --muted: 222 35% 16%;
+    --muted-foreground: 218 14% 58%;
+    --accent: 222 35% 18%;
+    --accent-foreground: 220 14% 94%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 32% 20%;
+    --input: 222 32% 20%;
+    --ring: 217 91% 60%;
+  }
+}
+
+#print-portal {
+  display: none;
+}
+
+@media print {
+  #root {
+    display: none !important;
+  }
+  #print-portal {
+    display: block !important;
+  }
+  #print-portal table {
+    border-collapse: collapse;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.35);
+}
