@@ -15,6 +15,7 @@ import { ProductImagePicker } from '@/components/shop/ProductImagePicker';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useApiList } from '@/hooks/useApiList';
 import * as productsApi from '@/services/api/products';
+import * as settingsApi from '@/services/api/settings';
 import { inp, btn, btnOutline, thCls, tdCls } from '@/components/shop/styles';
 
 const emptyProduct = {
@@ -42,6 +43,22 @@ export function InventoryPage() {
   const [details, setDetails] = useState(null);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // Settings.lowStockThreshold — used ONLY as the pre-filled default for a
+  // brand-new product's own minQuantity below (see openAdd). It was
+  // previously stored/editable in Settings but never actually read
+  // anywhere, so changing it had zero effect anywhere in the system; this
+  // is what makes it do something again, without changing how an existing
+  // product's own minQuantity (which always wins once set) is used.
+  const [defaultMinQuantity, setDefaultMinQuantity] = useState(5);
+
+  useEffect(() => {
+    settingsApi.getSettings()
+      .then((res) => {
+        const v = Number(res?.data?.lowStockThreshold);
+        if (Number.isFinite(v)) setDefaultMinQuantity(v);
+      })
+      .catch(() => {}); // keep the safe fallback of 5 on any failure
+  }, []);
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -72,7 +89,7 @@ export function InventoryPage() {
 
   const openAdd = () => {
     setEditing(null);
-    setForm(emptyProduct);
+    setForm({ ...emptyProduct, minQuantity: String(defaultMinQuantity) });
     setFormOpen(true);
   };
 

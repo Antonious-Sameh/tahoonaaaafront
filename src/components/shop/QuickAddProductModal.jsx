@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { fmtMoney } from '@/lib/formatters';
 import * as productsApi from '@/services/api/products';
+import * as settingsApi from '@/services/api/settings';
 import { Field } from './Field';
 import { Modal } from './Modal';
 import { ProductImagePicker } from './ProductImagePicker';
@@ -47,7 +48,19 @@ export function QuickAddProductModal({ open, onClose, onCreated, initialName = '
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (open) setForm({ ...emptyForm, name: initialName || '' });
+    if (open) {
+      setForm({ ...emptyForm, name: initialName || '' });
+      // Same fix as InventoryPage's own add-product form: pre-fill
+      // minQuantity from Settings.lowStockThreshold instead of the
+      // previously-hardcoded '5', which is what made that setting do
+      // nothing anywhere in the app.
+      settingsApi.getSettings()
+        .then((res) => {
+          const v = Number(res?.data?.lowStockThreshold);
+          if (Number.isFinite(v)) setForm((f) => ({ ...f, minQuantity: String(v) }));
+        })
+        .catch(() => {});
+    }
   }, [open, initialName]);
 
   const profit = (Number(form.salePrice) || 0) - (Number(form.purchasePrice) || 0);
