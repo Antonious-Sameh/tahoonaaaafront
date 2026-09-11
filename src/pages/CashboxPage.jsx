@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { toast } from 'sonner';
-import { Search, Plus, Minus, ArrowDownCircle, ArrowUpCircle, Wallet, FileText, Loader2 } from 'lucide-react';
+import { Search, Plus, Minus, ArrowDownCircle, ArrowUpCircle, Wallet, FileText, Loader2, Trash2 } from 'lucide-react';
 import { fmtMoney, fmtDate, fmtTime, todayInputValue } from '@/lib/formatters';
 import { Field } from '@/components/shop/Field';
 import { Empty } from '@/components/shop/Empty';
@@ -21,6 +21,7 @@ export function CashboxPage() {
   const [modal, setModal] = useState(params.get('add') === '1' ? 'in' : null);
   const [form, setForm] = useState({ amount: '', reason: '', date: todayInputValue(), notes: '' });
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [typeFilter, setTypeFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -78,6 +79,19 @@ export function CashboxPage() {
       toast.error(err.message || 'تعذر تنفيذ العملية');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await cashboxApi.deleteCashTransaction(deleteTarget._id);
+      toast.success('تم حذف الحركة وتحديث رصيد الصندوق');
+      setDeleteTarget(null);
+      reload();
+      reloadSummary();
+    } catch (err) {
+      toast.error(err.message || 'تعذر حذف الحركة');
     }
   };
 
@@ -158,11 +172,12 @@ export function CashboxPage() {
               <th className={thCls}>التاريخ</th>
               <th className={thCls}>الوقت</th>
               <th className={thCls}>العملية المرتبطة</th>
+              <th className={thCls}></th>
             </tr>
           </thead>
           <tbody>
             {loading && rows.length === 0 && (
-              <tr><td colSpan={6} className="py-14 text-center text-muted-foreground"><Loader2 size={20} className="mx-auto mb-2 animate-spin" />جارِ تحميل حركة الصندوق...</td></tr>
+              <tr><td colSpan={7} className="py-14 text-center text-muted-foreground"><Loader2 size={20} className="mx-auto mb-2 animate-spin" />جارِ تحميل حركة الصندوق...</td></tr>
             )}
             {rows.map((t) => (
               <tr key={t._id} className="border-b last:border-0 hover:bg-muted/40 transition-colors">
@@ -188,6 +203,22 @@ export function CashboxPage() {
                       ? 'مصروفات'
                       : 'حركة يدوية'}
                   </span>
+                </td>
+                <td className={`${tdCls} text-end`}>
+                  {/* Only a manual entry (no refType, entered directly from
+                      this page) can be deleted from here — a sale/purchase/
+                      expense/payment-linked row must be deleted through its
+                      OWN record instead, so the two always stay in sync
+                      (see deleteCashTransaction's docstring). */}
+                  {(!t.refType || t.refType === 'manual') && (
+                    <button
+                      onClick={() => setDeleteTarget(t)}
+                      className="rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
+                      title="حذف الحركة (تسجيل غلط)"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -275,6 +306,14 @@ export function CashboxPage() {
         title="تأكيد سحب مبلغ"
         description={`سيتم سحب مبلغ ${fmtMoney(Number(form.amount) || 0)} من الصندوق بداعي (${form.reason}). هل أنت متأكد؟`}
         onConfirm={submit}
+      />
+
+      <Confirm
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="حذف حركة خزينة"
+        description={`سيتم حذف حركة "${deleteTarget?.reason || ''}" بقيمة ${fmtMoney(deleteTarget?.amount || 0)} وتحديث رصيد الصندوق تبعًا لذلك. هل أنت متأكد؟`}
+        onConfirm={handleDelete}
       />
     </div>
   );

@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { toast } from 'sonner';
-import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight } from 'lucide-react';
+import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight, Trash2 } from 'lucide-react';
 import { fmtMoney, fmtDate, fmtDateTime } from '@/lib/formatters';
 import { Empty } from '@/components/shop/Empty';
 import { Badge } from '@/components/shop/Badge';
 import { Modal } from '@/components/shop/Modal';
+import { Confirm } from '@/components/shop/Confirm';
 import { Field } from '@/components/shop/Field';
 import { PrintPortal } from '@/components/shop/PrintPortal';
 import { usePrint } from '@/hooks/usePrint';
@@ -72,6 +73,8 @@ export function CustomerDetailsPage() {
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [paymentIdemKey, setPaymentIdemKey] = useState('');
+  const [deletePaymentTarget, setDeletePaymentTarget] = useState(null);
+  const [deletingPayment, setDeletingPayment] = useState(false);
 
   // Returns flow: 'pick-invoice' -> 'pick-items' -> 'confirm'
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -152,6 +155,21 @@ export function CustomerDetailsPage() {
       setConfirmingPayment(false); // back to the input step so they can adjust and retry
     } finally {
       setSubmittingPayment(false);
+    }
+  };
+
+  const handleDeletePayment = async () => {
+    if (!deletePaymentTarget) return;
+    setDeletingPayment(true);
+    try {
+      await customerPaymentsApi.deleteCustomerPayment(deletePaymentTarget._id);
+      toast.success('تم حذف السداد وإعادة المبلغ للصندوق');
+      setDeletePaymentTarget(null);
+      await load(); // refresh totals + payments from the server
+    } catch (err) {
+      toast.error(err.message || 'تعذر حذف السداد');
+    } finally {
+      setDeletingPayment(false);
     }
   };
 
@@ -337,6 +355,7 @@ export function CustomerDetailsPage() {
               <th className={thCls}>التاريخ والوقت</th>
               <th className={thCls}>المبلغ المسدد</th>
               <th className={thCls}>الرصيد بعد السداد</th>
+              <th className={thCls}></th>
             </tr>
           </thead>
           <tbody>
@@ -345,6 +364,15 @@ export function CustomerDetailsPage() {
                 <td className={`${tdCls} text-muted-foreground`}>{fmtDateTime(p.date)}</td>
                 <td className={`${tdCls} font-mono font-semibold text-emerald-600`}>{fmtMoney(p.amount)}</td>
                 <td className={`${tdCls} font-mono`}>{fmtMoney(p.balanceAfter)}</td>
+                <td className={`${tdCls} text-end`}>
+                  <button
+                    onClick={() => setDeletePaymentTarget(p)}
+                    className="rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
+                    title="حذف السداد (تسجيل غلط)"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -683,6 +711,14 @@ export function CustomerDetailsPage() {
           </div>
         </PrintPortal>
       )}
+
+      <Confirm
+        open={!!deletePaymentTarget}
+        onClose={() => { if (!deletingPayment) setDeletePaymentTarget(null); }}
+        title="حذف سداد"
+        description={`هل أنت متأكد من حذف سداد بقيمة ${fmtMoney(deletePaymentTarget?.amount || 0)}؟ سيتم إعادة المبلغ للصندوق ورصيد العميل سيرتفع بنفس القيمة.`}
+        onConfirm={handleDeletePayment}
+      />
     </div>
   );
 }
