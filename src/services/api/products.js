@@ -5,3 +5,4 @@ export const getProduct = (id) => apiGet(`/products/${id}`);
 export const createProduct = (data) => apiPost('/products', data);
 export const updateProduct = (id, data) => apiPatch(`/products/${id}`, data);
 export const deleteProduct = (id) => apiDelete(`/products/${id}`);
+export const restoreProduct = (id) => apiPost(`/products/${id}/restore`);
