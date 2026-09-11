@@ -68,7 +68,6 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <Toaster position="top-center" richColors dir="rtl" />
-        <div id="print-portal" />
       </Router>
     </AuthProvider>
   );
