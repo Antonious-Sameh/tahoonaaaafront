@@ -45,7 +45,18 @@ export function CustomersPage() {
         await customersApi.updateCustomer(editing._id, payload);
         toast.success('تم تحديث بيانات العميل بنجاح');
       } else {
-        await customersApi.createCustomer(payload);
+        try {
+          await customersApi.createCustomer(payload);
+        } catch (err) {
+          if (err.details?.code === 'POSSIBLE_DUPLICATE') {
+            const names = err.details.matches.map((m) => `${m.name}${m.phone ? ` (${m.phone})` : ''}`).join('، ');
+            const proceed = window.confirm(`فيه عميل موجود بالفعل بنفس الاسم أو رقم الهاتف: ${names}. متأكد عايز تضيف عميل جديد منفصل؟`);
+            if (!proceed) { setSaving(false); return; }
+            await customersApi.createCustomer({ ...payload, allowDuplicate: true });
+          } else {
+            throw err;
+          }
+        }
         toast.success('تمت إضافة العميل بنجاح');
       }
       setFormOpen(false);

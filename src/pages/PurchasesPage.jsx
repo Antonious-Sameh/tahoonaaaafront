@@ -167,7 +167,19 @@ export function PurchasesPage() {
     }
     setSavingSupplier(true);
     try {
-      const res = await suppliersApi.createSupplier(newSupplier);
+      let res;
+      try {
+        res = await suppliersApi.createSupplier(newSupplier);
+      } catch (err) {
+        if (err.details?.code === 'POSSIBLE_DUPLICATE') {
+          const names = err.details.matches.map((m) => `${m.name}${m.phone ? ` (${m.phone})` : ''}`).join('، ');
+          const proceed = window.confirm(`فيه مورد موجود بالفعل بنفس الاسم أو رقم الهاتف: ${names}. متأكد عايز تضيف مورد جديد منفصل؟`);
+          if (!proceed) { setSavingSupplier(false); return; }
+          res = await suppliersApi.createSupplier({ ...newSupplier, allowDuplicate: true });
+        } else {
+          throw err;
+        }
+      }
       setSuppliersList((prev) => [res.data, ...prev]);
       toast.success('تمت إضافة المورد بنجاح');
       setSupplierId(res.data._id);

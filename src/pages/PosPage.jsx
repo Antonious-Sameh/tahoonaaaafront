@@ -148,7 +148,19 @@ export function PosPage() {
     if (!newCustomer.name.trim()) { toast.error('يرجى إدخال اسم العميل'); return; }
     setSavingCustomer(true);
     try {
-      const res = await customersApi.createCustomer(newCustomer);
+      let res;
+      try {
+        res = await customersApi.createCustomer(newCustomer);
+      } catch (err) {
+        if (err.details?.code === 'POSSIBLE_DUPLICATE') {
+          const names = err.details.matches.map((m) => `${m.name}${m.phone ? ` (${m.phone})` : ''}`).join('، ');
+          const proceed = window.confirm(`فيه عميل موجود بالفعل بنفس الاسم أو رقم الهاتف: ${names}. متأكد عايز تضيف عميل جديد منفصل؟`);
+          if (!proceed) { setSavingCustomer(false); return; }
+          res = await customersApi.createCustomer({ ...newCustomer, allowDuplicate: true });
+        } else {
+          throw err;
+        }
+      }
       setCustomers((prev) => [res.data, ...prev]);
       setCustomerId(res.data._id);
       setShowNewCustomer(false);
