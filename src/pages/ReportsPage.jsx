@@ -99,13 +99,13 @@ export function ReportsPage() {
       ['مبيعات نقدية', fmtMoney(salesReport.cashTotal)],
       ['مبيعات آجلة', fmtMoney(salesReport.creditTotal)],
       ['المحصل', fmtMoney(salesReport.paid)],
-      ['المستحق', fmtMoney(salesReport.remaining)],
+      ['آجل غير محصّل عند البيع', fmtMoney(salesReport.creditOutstandingAtSale)],
     ];
     if (tab === 'purchases' && purchasesReport) return [
       ['إجمالي المشتريات', fmtMoney(purchasesReport.total)],
       ['عدد العمليات', fmtNum(purchasesReport.count)],
       ['المدفوع', fmtMoney(purchasesReport.paid)],
-      ['المتبقي للموردين', fmtMoney(purchasesReport.remaining)],
+      ['آجل غير مسدّد عند الشراء', fmtMoney(purchasesReport.creditOutstandingAtPurchase)],
     ];
     if (tab === 'profit' && profitReport) return [
       ['إيراد المبيعات', fmtMoney(profitReport.revenue)],
@@ -168,8 +168,11 @@ export function ReportsPage() {
             <Stat title="مبيعات نقدية" value={fmtMoney(salesReport.cashTotal)} icon={Wallet} tone="bg-green-100 text-green-700" />
             <Stat title="مبيعات آجلة" value={fmtMoney(salesReport.creditTotal)} icon={History} tone="bg-amber-100 text-amber-700" />
             <Stat title="المحصل" value={fmtMoney(salesReport.paid)} icon={ArrowDownCircle} tone="bg-emerald-100 text-emerald-700" />
-            <Stat title="المستحق" value={fmtMoney(salesReport.remaining)} icon={AlertTriangle} tone="bg-red-100 text-red-700" />
+            <Stat title="آجل غير محصّل عند البيع" value={fmtMoney(salesReport.creditOutstandingAtSale)} icon={AlertTriangle} tone="bg-red-100 text-red-700" />
           </div>
+          <p className="-mt-2 text-xs text-muted-foreground">
+            "آجل غير محصّل عند البيع" بيعكس فواتير الفترة دي وقت تسجيلها ناقص أي مرتجعات عليها، ومش بياخد بالحسبان دفعات "تسجيل سداد" المنفصلة — للرصيد الحالي الفعلي لكل عميل، شوف تبويب "العملاء".
+          </p>
           <div className="rounded-xl border bg-card p-4">
             <h3 className="mb-3 font-bold">الأكثر مبيعاً</h3>
             {salesReport.bestSellers.length === 0 ? <Empty text="لا توجد مبيعات في هذه الفترة" /> : (
@@ -190,8 +193,11 @@ export function ReportsPage() {
             <Stat title="إجمالي المشتريات" value={fmtMoney(purchasesReport.total)} icon={ShoppingBag} tone="bg-blue-100 text-blue-700" />
             <Stat title="عدد العمليات" value={fmtNum(purchasesReport.count)} icon={Receipt} tone="bg-violet-100 text-violet-700" />
             <Stat title="المدفوع" value={fmtMoney(purchasesReport.paid)} icon={Wallet} tone="bg-emerald-100 text-emerald-700" />
-            <Stat title="المتبقي للموردين" value={fmtMoney(purchasesReport.remaining)} icon={AlertTriangle} tone="bg-red-100 text-red-700" />
+            <Stat title="آجل غير مسدّد عند الشراء" value={fmtMoney(purchasesReport.creditOutstandingAtPurchase)} icon={AlertTriangle} tone="bg-red-100 text-red-700" />
           </div>
+          <p className="-mt-2 text-xs text-muted-foreground">
+            "آجل غير مسدّد عند الشراء" بيعكس عمليات الفترة دي وقت تسجيلها ناقص أي مرتجعات عليها، ومش بياخد بالحسبان دفعات سداد الموردين المنفصلة — للرصيد الحالي الفعلي لكل مورد، شوف جدول "أرصدة الموردين" تحت أو تبويب "الموردين".
+          </p>
           <div className="rounded-xl border bg-card p-4">
             <h3 className="mb-3 font-bold">أرصدة الموردين</h3>
             {purchasesReport.supplierBalances.length === 0 ? <Empty text="لا يوجد موردون" /> : (

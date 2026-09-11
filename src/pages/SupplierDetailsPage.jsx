@@ -191,7 +191,7 @@ export function SupplierDetailsPage() {
   const returnLines = (returnable?.items || [])
     .map((it) => {
       const qty = integerTextToNumber(returnQtyText[it.productId] || '');
-      return { ...it, quantity: qty, exceedsAvailable: qty > it.availableToReturn, amount: qty * it.originalUnitPrice };
+      return { ...it, quantity: qty, exceedsAvailable: qty > it.availableToReturn, amount: qty * (it.effectiveUnitPrice ?? it.originalUnitPrice) };
     })
     .filter((l) => l.quantity > 0);
 
@@ -508,7 +508,14 @@ export function SupplierDetailsPage() {
                         <td className={`${tdCls} font-mono`}>{it.originalQuantity}</td>
                         <td className={`${tdCls} font-mono`}>{it.alreadyReturnedQuantity}</td>
                         <td className={`${tdCls} font-mono ${it.availableToReturn === 0 ? 'text-muted-foreground' : 'text-primary'}`}>{it.availableToReturn}</td>
-                        <td className={`${tdCls} font-mono`}>{fmtMoney(it.originalUnitPrice)}</td>
+                        <td className={`${tdCls} font-mono`}>
+                          {fmtMoney(it.originalUnitPrice)}
+                          {it.effectiveUnitPrice != null && it.effectiveUnitPrice !== it.originalUnitPrice && (
+                            <div className="text-xs font-normal text-muted-foreground">
+                              بعد نصيبه من الخصم: {fmtMoney(it.effectiveUnitPrice)}
+                            </div>
+                          )}
+                        </td>
                         <td className={tdCls}>
                           <input
                             type="text"
