@@ -23,10 +23,21 @@ export function ExpensesPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [summary, setSummary] = useState(null);
 
-  // The full list of reasons ever used can't be derived from a single
-  // (paginated) page anymore — the filter/datalist uses the static
-  // suggestions only now. See FRONTEND_INTEGRATION.md for the trade-off.
-  const reasons = EXPENSE_SUGGESTIONS;
+  // Real reasons actually used in the data, merged with the static starter
+  // suggestions (so a brand-new shop with zero expenses still sees helpful
+  // options) — this is what makes the filter dropdown and the datalist
+  // able to include every reason someone has actually typed, not just the
+  // fixed suggestion set. Previously only the static list was available;
+  // see expense.service.js's getDistinctReasons for why that under-served
+  // free-text reasons.
+  const [usedReasons, setUsedReasons] = useState([]);
+  const reloadReasons = useCallback(() => {
+    expensesApi.getExpenseReasons()
+      .then((res) => setUsedReasons(res.data || []))
+      .catch(() => {}); // keep the static suggestions as a safe fallback
+  }, []);
+  useEffect(() => { reloadReasons(); }, [reloadReasons]);
+  const reasons = Array.from(new Set([...EXPENSE_SUGGESTIONS, ...usedReasons])).sort((a, b) => a.localeCompare(b, 'ar'));
 
   useEffect(() => setPage(1), [typeFilter, from, to]);
 
@@ -65,6 +76,7 @@ export function ExpensesPage() {
       setForm({ reason: '', amount: '', date: todayInputValue(), notes: '' });
       reload();
       reloadSummary();
+      reloadReasons();
     } catch (err) {
       toast.error(err.message || 'تعذر تسجيل المصروف');
     } finally {
@@ -80,6 +92,7 @@ export function ExpensesPage() {
       setDeleteTarget(null);
       reload();
       reloadSummary();
+      reloadReasons();
     } catch (err) {
       toast.error(err.message || 'تعذر حذف المصروف');
     }
