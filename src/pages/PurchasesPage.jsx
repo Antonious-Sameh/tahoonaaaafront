@@ -508,6 +508,7 @@ export function PurchasesPage() {
         open={showAddProduct}
         onClose={() => setShowAddProduct(false)}
         onCreated={handleProductCreated}
+        lockQuantityToZero
       />
     </div>
   );

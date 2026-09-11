@@ -25,8 +25,24 @@ const emptyForm = {
  * product. On success it hands the freshly created product back via onCreated
  * so the caller can immediately use it in the same operation (add to cart / add
  * to purchase lines), exactly like it already exists in the products list.
+ *
+ * `lockQuantityToZero` (pass `true` from PurchasesPage only): the freshly
+ * created product is about to be added as its own line into the CURRENT
+ * purchase, and that purchase line's own quantity is what feeds the
+ * weighted-average update on Product.quantity next. Letting this modal's
+ * own quantity field ALSO set an opening stock meant the two silently added
+ * together (e.g. 8 typed here + 8 on the purchase line left the product at
+ * 16, not 8) — a real, confirmed double-count. Locking it to 0 here makes
+ * the purchase line the single source of truth for quantity.
+ *
+ * POS does NOT pass this (stays `false`, the default): a sale only ever
+ * DECREMENTS stock, there is no second place that also adds to this
+ * product's quantity, so the quantity typed here is exactly what a
+ * brand-new product's opening stock should be — no double-count risk, and
+ * locking it there would wrongly block selling a just-created product in
+ * the same POS transaction.
  */
-export function QuickAddProductModal({ open, onClose, onCreated, initialName = '' }) {
+export function QuickAddProductModal({ open, onClose, onCreated, initialName = '', lockQuantityToZero = false }) {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
@@ -45,7 +61,7 @@ export function QuickAddProductModal({ open, onClose, onCreated, initialName = '
       image: form.image,
       purchasePrice: Math.max(0, Number(form.purchasePrice) || 0),
       salePrice: Math.max(0, Number(form.salePrice) || 0),
-      quantity: Math.max(0, Number(form.quantity) || 0),
+      quantity: lockQuantityToZero ? 0 : Math.max(0, Number(form.quantity) || 0),
       minQuantity: Math.max(0, Number(form.minQuantity) || 0),
     };
     setSaving(true);
@@ -97,13 +113,15 @@ export function QuickAddProductModal({ open, onClose, onCreated, initialName = '
               onChange={(e) => setForm({ ...form, salePrice: e.target.value })}
             />
           </Field>
-          <Field label="الكمية المتاحة">
-            <input
-              type="number" min="0" className={inp}
-              value={form.quantity}
-              onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-            />
-          </Field>
+          {!lockQuantityToZero && (
+            <Field label="الكمية المتاحة">
+              <input
+                type="number" min="0" className={inp}
+                value={form.quantity}
+                onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+              />
+            </Field>
+          )}
           <Field label="الحد الأدنى (للتنبيه)">
             <input
               type="number" min="0" className={inp}
@@ -112,6 +130,11 @@ export function QuickAddProductModal({ open, onClose, onCreated, initialName = '
             />
           </Field>
         </div>
+        {lockQuantityToZero && (
+          <p className="text-xs text-muted-foreground -mt-1">
+            الكمية هتتحدد من سطر الشراء اللي هتضيف المنتج له بعد الحفظ مباشرة — مش من هنا، عشان تتجنب تكرار احتساب الكمية مرتين.
+          </p>
+        )}
         <Field label="ملاحظات">
           <input
             className={inp}
