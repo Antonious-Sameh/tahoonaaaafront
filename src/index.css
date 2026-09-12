@@ -101,6 +101,17 @@ body {
   #print-portal table {
     border-collapse: collapse;
   }
+  /* Without these, a long table (many products/customers/suppliers) would
+     print its header only on page 1 — every later page would show rows
+     with no column labels — and a row could visually split in half right
+     at a page boundary. Both are standard, safe print-only rules with no
+     effect on-screen. */
+  #print-portal table thead {
+    display: table-header-group;
+  }
+  #print-portal table tr {
+    break-inside: avoid;
+  }
   @page {
     margin: 14mm 12mm;
   }
