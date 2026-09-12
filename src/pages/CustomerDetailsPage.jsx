@@ -14,6 +14,7 @@ import { usePrint } from '@/hooks/usePrint';
 import * as customersApi from '@/services/api/customers';
 import * as salesApi from '@/services/api/sales';
 import * as customerPaymentsApi from '@/services/api/customerPayments';
+import * as customerCreditPayoutsApi from '@/services/api/customerCreditPayouts';
 import * as salesReturnsApi from '@/services/api/salesReturns';
 import { inp, btn, btnOutline, thCls, tdCls } from '@/components/shop/styles';
 
@@ -63,6 +64,7 @@ export function CustomerDetailsPage() {
   const [customer, setCustomer] = useState(null);
   const [sales, setSales] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [payouts, setPayouts] = useState([]);
   const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -73,8 +75,15 @@ export function CustomerDetailsPage() {
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [paymentIdemKey, setPaymentIdemKey] = useState('');
+  const [showPayoutModal, setShowPayoutModal] = useState(false);
+  const [payoutAmountText, setPayoutAmountText] = useState('');
+  const [confirmingPayout, setConfirmingPayout] = useState(false);
+  const [submittingPayout, setSubmittingPayout] = useState(false);
+  const [payoutIdemKey, setPayoutIdemKey] = useState('');
   const [deletePaymentTarget, setDeletePaymentTarget] = useState(null);
   const [deletingPayment, setDeletingPayment] = useState(false);
+  const [deletePayoutTarget, setDeletePayoutTarget] = useState(null);
+  const [deletingPayout, setDeletingPayout] = useState(false);
 
   // Returns flow: 'pick-invoice' -> 'pick-items' -> 'confirm'
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -89,16 +98,18 @@ export function CustomerDetailsPage() {
     setLoading(true);
     setNotFound(false);
     try {
-      const [customerRes, salesRes, paymentsRes, returnsRes] = await Promise.all([
+      const [customerRes, salesRes, paymentsRes, returnsRes, payoutsRes] = await Promise.all([
         customersApi.getCustomer(id),
         salesApi.listSales({ customerId: id, limit: HISTORY_LIMIT }),
         customerPaymentsApi.listCustomerPayments({ customerId: id, limit: HISTORY_LIMIT }),
         salesReturnsApi.listSalesReturns({ customerId: id, limit: HISTORY_LIMIT }),
+        customerCreditPayoutsApi.listCustomerCreditPayouts({ customerId: id, limit: HISTORY_LIMIT }),
       ]);
       setCustomer(customerRes.data);
       setSales(salesRes.data);
       setPayments(paymentsRes.data);
       setReturns(returnsRes.data);
+      setPayouts(payoutsRes.data);
     } catch (err) {
       if (err.status === 404) setNotFound(true);
       else toast.error(err.message || 'تعذر تحميل بيانات العميل');
@@ -128,6 +139,11 @@ export function CustomerDetailsPage() {
   const paymentValid = paymentAmount > 0 && !paymentExceedsRemaining;
   const newBalancePreview = Math.max(0, t.remaining - Math.min(paymentAmount, t.remaining));
 
+  const payoutAmount = decimalTextToNumber(payoutAmountText);
+  const payoutExceedsCreditOwed = payoutAmount > (t.creditOwed || 0);
+  const payoutValid = payoutAmount > 0 && !payoutExceedsCreditOwed;
+  const newCreditOwedPreview = Math.max(0, (t.creditOwed || 0) - Math.min(payoutAmount, t.creditOwed || 0));
+
   const openPaymentModal = () => {
     setPaymentAmountText('');
     setConfirmingPayment(false);
@@ -139,6 +155,19 @@ export function CustomerDetailsPage() {
     setShowPaymentModal(false);
     setConfirmingPayment(false);
     setPaymentAmountText('');
+  };
+
+  const openPayoutModal = () => {
+    setPayoutAmountText('');
+    setConfirmingPayout(false);
+    setPayoutIdemKey(newIdempotencyKey());
+    setShowPayoutModal(true);
+  };
+  const closePayoutModal = () => {
+    if (submittingPayout) return;
+    setShowPayoutModal(false);
+    setConfirmingPayout(false);
+    setPayoutAmountText('');
   };
 
   const submitPayment = async () => {
@@ -158,6 +187,23 @@ export function CustomerDetailsPage() {
     }
   };
 
+  const submitPayout = async () => {
+    setSubmittingPayout(true);
+    try {
+      await customerCreditPayoutsApi.createCustomerCreditPayout({ customerId: id, amount: payoutAmount, idempotencyKey: payoutIdemKey });
+      toast.success('تم دفع المستحق للعميل، وتم خصمه من الصندوق');
+      setShowPayoutModal(false);
+      setConfirmingPayout(false);
+      setPayoutAmountText('');
+      await load(); // refresh totals + payouts from the server
+    } catch (err) {
+      toast.error(err.message || 'تعذر تسجيل الدفع');
+      setConfirmingPayout(false); // back to the input step so they can adjust and retry
+    } finally {
+      setSubmittingPayout(false);
+    }
+  };
+
   const handleDeletePayment = async () => {
     if (!deletePaymentTarget) return;
     setDeletingPayment(true);
@@ -170,6 +216,21 @@ export function CustomerDetailsPage() {
       toast.error(err.message || 'تعذر حذف السداد');
     } finally {
       setDeletingPayment(false);
+    }
+  };
+
+  const handleDeletePayout = async () => {
+    if (!deletePayoutTarget) return;
+    setDeletingPayout(true);
+    try {
+      await customerCreditPayoutsApi.deleteCustomerCreditPayout(deletePayoutTarget._id);
+      toast.success('تم حذف عملية الدفع، ورجع المبلغ لرصيد الصندوق');
+      setDeletePayoutTarget(null);
+      await load(); // refresh totals + payouts from the server
+    } catch (err) {
+      toast.error(err.message || 'تعذر حذف العملية');
+    } finally {
+      setDeletingPayout(false);
     }
   };
 
@@ -265,6 +326,14 @@ export function CustomerDetailsPage() {
             >
               <Wallet size={15} /> تسجيل سداد
             </button>
+            {t.creditOwed > 0 && (
+              <button
+                onClick={openPayoutModal}
+                className={`${btn} !h-9 !bg-emerald-600 hover:!bg-emerald-700`}
+              >
+                <Wallet size={15} /> دفع مستحق للعميل
+              </button>
+            )}
             <button
               onClick={openReturnModal}
               disabled={sales.length === 0}
@@ -380,6 +449,46 @@ export function CustomerDetailsPage() {
         {payments.length === 0 && <Empty text="لا توجد عمليات سداد مسجلة لهذا العميل" />}
       </div>
 
+      {/* Credit payout history — money the shop has paid BACK to the
+          customer against a creditOwed balance (see
+          customerCreditPayout.service.js). Only rendered when relevant. */}
+      {(payouts.length > 0 || t.creditOwed > 0) && (
+        <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-4 py-3">
+            <h3 className="text-sm font-semibold text-foreground">سجل دفع المستحق للعميل</h3>
+          </div>
+          <table className="w-full text-start">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className={thCls}>التاريخ والوقت</th>
+                <th className={thCls}>المبلغ المدفوع</th>
+                <th className={thCls}>المستحق بعد الدفع</th>
+                <th className={thCls}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {payouts.map((p) => (
+                <tr key={p._id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                  <td className={`${tdCls} text-muted-foreground`}>{fmtDateTime(p.date)}</td>
+                  <td className={`${tdCls} font-mono font-semibold text-destructive`}>{fmtMoney(p.amount)}</td>
+                  <td className={`${tdCls} font-mono`}>{fmtMoney(p.creditOwedAfter)}</td>
+                  <td className={`${tdCls} text-end`}>
+                    <button
+                      onClick={() => setDeletePayoutTarget(p)}
+                      className="rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
+                      title="حذف عملية الدفع (تسجيل غلط)"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {payouts.length === 0 && <Empty text="لا توجد عمليات دفع مستحق مسجلة لهذا العميل" />}
+        </div>
+      )}
+
       {/* Returns history — standalone from the sales above: each row here
           restores stock and reduces the customer's running balance without
           changing the original sale's own recorded items/paid/remaining. */}
@@ -473,6 +582,70 @@ export function CustomerDetailsPage() {
               <button className={btnOutline} onClick={() => setConfirmingPayment(false)} disabled={submittingPayment}>رجوع</button>
               <button className={btn} onClick={submitPayment} disabled={submittingPayment}>
                 {submittingPayment && <Loader2 size={14} className="animate-spin" />} تأكيد السداد
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Pay out credit owed to the customer */}
+      <Modal open={showPayoutModal} onClose={closePayoutModal} title="دفع مستحق للعميل">
+        {!confirmingPayout ? (
+          <div className="grid gap-4">
+            <div className="rounded-lg bg-muted/40 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">المستحق للعميل حاليًا</span>
+                <b className="font-mono text-emerald-700">{fmtMoney(t.creditOwed || 0)}</b>
+              </div>
+            </div>
+
+            <Field label="المبلغ اللي هتدفعه">
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                autoFocus
+                className={`${inp} font-mono`}
+                value={payoutAmountText}
+                onChange={(e) => setPayoutAmountText(sanitizeDecimalText(e.target.value))}
+                placeholder="0"
+              />
+              {payoutExceedsCreditOwed && (
+                <p className="mt-1 text-xs font-semibold text-destructive">المبلغ أكبر من المستحق الفعلي لهذا العميل</p>
+              )}
+            </Field>
+
+            <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">المستحق الجديد بعد الدفع</span>
+                <b className="font-mono text-primary">{fmtMoney(newCreditOwedPreview)}</b>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button className={btnOutline} onClick={closePayoutModal}>إلغاء</button>
+              <button className={btn} disabled={!payoutValid} onClick={() => setConfirmingPayout(true)}>
+                متابعة
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-50">
+                <CheckCircle2 size={16} className="text-emerald-600" />
+              </div>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                هل تريد دفع <b className="font-mono text-foreground">{fmtMoney(payoutAmount)}</b> نقدًا من الصندوق
+                للعميل <b className="text-foreground">{customer.name}</b>؟
+                <br />
+                سيصبح المستحق له <b className="font-mono text-foreground">{fmtMoney(newCreditOwedPreview)}</b>.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className={btnOutline} onClick={() => setConfirmingPayout(false)} disabled={submittingPayout}>رجوع</button>
+              <button className={btn} onClick={submitPayout} disabled={submittingPayout}>
+                {submittingPayout && <Loader2 size={14} className="animate-spin" />} تأكيد الدفع
               </button>
             </div>
           </div>
@@ -703,10 +876,35 @@ export function CustomerDetailsPage() {
               </>
             )}
 
+            {payouts.length > 0 && (
+              <>
+                <h2 className="mb-2 mt-6 text-base font-bold">سجل دفع المستحق للعميل</h2>
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-black/20">
+                      <th className="p-2 text-start">التاريخ والوقت</th>
+                      <th className="p-2 text-start">المبلغ المدفوع</th>
+                      <th className="p-2 text-start">المستحق بعد الدفع</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payouts.map((p) => (
+                      <tr key={p._id} className="border-b border-black/10">
+                        <td className="p-2">{fmtDateTime(p.date)}</td>
+                        <td className="p-2 font-mono">{fmtMoney(p.amount)}</td>
+                        <td className="p-2 font-mono">{fmtMoney(p.creditOwedAfter)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+
             <div className="mt-4 flex justify-end gap-8 text-sm font-bold">
               <span>الإجمالي: {fmtMoney(t.total)}</span>
               <span>المدفوع: {fmtMoney(t.paid)}</span>
               <span>المتبقي: {fmtMoney(t.remaining)}</span>
+              {t.creditOwed > 0 && <span>المستحق للعميل: {fmtMoney(t.creditOwed)}</span>}
             </div>
           </div>
         </PrintPortal>
@@ -718,6 +916,14 @@ export function CustomerDetailsPage() {
         title="حذف سداد"
         description={`هل أنت متأكد من حذف سداد بقيمة ${fmtMoney(deletePaymentTarget?.amount || 0)}؟ سيتم إعادة المبلغ للصندوق ورصيد العميل سيرتفع بنفس القيمة.`}
         onConfirm={handleDeletePayment}
+      />
+
+      <Confirm
+        open={!!deletePayoutTarget}
+        onClose={() => { if (!deletingPayout) setDeletePayoutTarget(null); }}
+        title="حذف عملية دفع مستحق"
+        description={`هل أنت متأكد من حذف عملية دفع بقيمة ${fmtMoney(deletePayoutTarget?.amount || 0)}؟ سيرجع المبلغ لرصيد الصندوق، والمستحق للعميل سيرتفع بنفس القيمة.`}
+        onConfirm={handleDeletePayout}
       />
     </div>
   );
