@@ -6,7 +6,7 @@ import {
   History, ArrowDownCircle, AlertTriangle, BarChart3, Loader2,
 } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
-import { fmtMoney, fmtNum, fmtDate } from '@/lib/formatters';
+import { fmtMoney, fmtNum, fmtDate, fmtDateTime } from '@/lib/formatters';
 import { Stat } from '@/components/shop/Stat';
 import { Empty } from '@/components/shop/Empty';
 import { PrintPortal } from '@/components/shop/PrintPortal';
@@ -133,6 +133,46 @@ export function ReportsPage() {
     return [];
   }, [tab, salesReport, purchasesReport, profitReport, inventoryReport, customersReport, suppliersReport]);
 
+  // The breakdown table shown on-screen for the current tab (if any),
+  // reshaped for printing — previously only the flat summary numbers
+  // (printRows above) made it into the printed report; the underlying
+  // per-item/per-person tables never did, so a printed inventory report
+  // had no product list, and a printed purchases report had no supplier
+  // balances, etc.
+  const printDetails = useMemo(() => {
+    if (tab === 'inventory' && inventoryReport?.items?.length) {
+      return {
+        title: 'تفاصيل المنتجات',
+        headers: ['اسم المنتج', 'الكود', 'الكمية', 'سعر الشراء', 'الإجمالي', 'سعر البيع', 'ربح القطعة'],
+        rows: inventoryReport.items.map((p) => [
+          p.name, p.code || '—', fmtNum(p.quantity), fmtMoney(p.purchasePrice), fmtMoney(p.totalValue), fmtMoney(p.salePrice), fmtMoney(p.unitProfit),
+        ]),
+      };
+    }
+    if (tab === 'customers' && customersReport?.topCustomers?.length) {
+      return {
+        title: 'أعلى العملاء شراءً',
+        headers: ['العميل', 'إجمالي المشتريات', 'المدفوع', 'المتبقي'],
+        rows: customersReport.topCustomers.map((c) => [c.name, fmtMoney(c.total), fmtMoney(c.paid), c.remaining > 0 ? fmtMoney(c.remaining) : '—']),
+      };
+    }
+    if (tab === 'suppliers' && suppliersReport?.topSuppliers?.length) {
+      return {
+        title: 'أعلى الموردين تعاملاً',
+        headers: ['المورد', 'إجمالي المشتريات', 'المدفوع', 'المتبقي'],
+        rows: suppliersReport.topSuppliers.map((s) => [s.name, fmtMoney(s.total), fmtMoney(s.paid), s.remaining > 0 ? fmtMoney(s.remaining) : '—']),
+      };
+    }
+    if (tab === 'purchases' && purchasesReport?.supplierBalances?.length) {
+      return {
+        title: 'أرصدة الموردين',
+        headers: ['المورد', 'إجمالي المشتريات', 'المدفوع', 'المتبقي'],
+        rows: purchasesReport.supplierBalances.map((s) => [s.name, fmtMoney(s.total), fmtMoney(s.paid), s.remaining > 0 ? fmtMoney(s.remaining) : '—']),
+      };
+    }
+    return null;
+  }, [tab, inventoryReport, customersReport, suppliersReport, purchasesReport]);
+
   const Loading = () => (
     <div className="py-14 text-center text-muted-foreground"><Loader2 size={20} className="mx-auto mb-2 animate-spin" />جارِ تحميل التقرير...</div>
   );
@@ -225,13 +265,46 @@ export function ReportsPage() {
 
       {tab === 'inventory' && (
         loading && !inventoryReport ? <Loading /> : inventoryReport && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <Stat title="عدد المنتجات" value={fmtNum(inventoryReport.productsCount)} icon={Package} tone="bg-blue-100 text-blue-700" />
-          <Stat title="إجمالي القطع" value={fmtNum(inventoryReport.totalQuantity)} icon={Package} tone="bg-violet-100 text-violet-700" />
-          <Stat title="قيمة المخزون (شراء)" value={fmtMoney(inventoryReport.costValue)} icon={Wallet} tone="bg-slate-100 text-slate-700" />
-          <Stat title="قيمة المخزون (بيع)" value={fmtMoney(inventoryReport.saleValue)} icon={BarChart3} tone="bg-emerald-100 text-emerald-700" />
-          <Stat title="الربح المتوقع" value={fmtMoney(inventoryReport.expectedProfit)} icon={BarChart3} tone="bg-green-100 text-green-700" />
-          <Stat title="منخفض / نافذ" value={`${fmtNum(inventoryReport.lowCount)} / ${fmtNum(inventoryReport.outCount)}`} icon={AlertTriangle} tone="bg-amber-100 text-amber-700" />
+        <div className="grid gap-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <Stat title="عدد المنتجات" value={fmtNum(inventoryReport.productsCount)} icon={Package} tone="bg-blue-100 text-blue-700" />
+            <Stat title="إجمالي القطع" value={fmtNum(inventoryReport.totalQuantity)} icon={Package} tone="bg-violet-100 text-violet-700" />
+            <Stat title="قيمة المخزون (شراء)" value={fmtMoney(inventoryReport.costValue)} icon={Wallet} tone="bg-slate-100 text-slate-700" />
+            <Stat title="قيمة المخزون (بيع)" value={fmtMoney(inventoryReport.saleValue)} icon={BarChart3} tone="bg-emerald-100 text-emerald-700" />
+            <Stat title="الربح المتوقع" value={fmtMoney(inventoryReport.expectedProfit)} icon={BarChart3} tone="bg-green-100 text-green-700" />
+            <Stat title="منخفض / نافذ" value={`${fmtNum(inventoryReport.lowCount)} / ${fmtNum(inventoryReport.outCount)}`} icon={AlertTriangle} tone="bg-amber-100 text-amber-700" />
+          </div>
+          <div className="rounded-xl border bg-card p-4 overflow-x-auto">
+            <h3 className="mb-3 font-bold">تفاصيل المنتجات</h3>
+            {!inventoryReport.items || inventoryReport.items.length === 0 ? <Empty text="لا توجد منتجات" /> : (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className={thCls}>اسم المنتج</th>
+                    <th className={thCls}>الكود</th>
+                    <th className={thCls}>الكمية</th>
+                    <th className={thCls}>سعر الشراء</th>
+                    <th className={thCls}>الإجمالي</th>
+                    <th className={thCls}>سعر البيع</th>
+                    <th className={thCls}>ربح القطعة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inventoryReport.items.map((p) => (
+                    <tr key={p.productId} className="border-b last:border-0">
+                      <td className={`${tdCls} font-semibold`}>{p.name}</td>
+                      <td className={`${tdCls} font-mono text-xs text-muted-foreground`}>{p.code || '—'}</td>
+                      <td className={`${tdCls} font-mono`}>{fmtNum(p.quantity)}</td>
+                      <td className={`${tdCls} font-mono`}>{fmtMoney(p.purchasePrice)}</td>
+                      <td className={`${tdCls} font-mono font-semibold`}>{fmtMoney(p.totalValue)}</td>
+                      <td className={`${tdCls} font-mono`}>{fmtMoney(p.salePrice)}</td>
+                      <td className={`${tdCls} font-mono ${p.unitProfit < 0 ? 'text-destructive' : 'text-emerald-600'}`}>{fmtMoney(p.unitProfit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
         )
       )}
@@ -280,18 +353,70 @@ export function ReportsPage() {
 
       {printing && (
         <PrintPortal>
-          <div dir="rtl" className="bg-white p-6 text-slate-900">
-            <div className="mb-4 border-b pb-4 text-center">
-              <h2 className="text-xl font-bold">{settings?.shopName}</h2>
-              <p className="text-sm text-slate-500">تقرير {tabLabel} — {rangeLabel}</p>
+          <div dir="rtl" className="bg-white p-8 text-slate-900" style={{ fontFamily: 'inherit' }}>
+            {/* Letterhead */}
+            <div className="mb-6 flex items-start justify-between border-b-2 border-slate-800 pb-4">
+              <div>
+                <h1 className="text-2xl font-extrabold tracking-tight">{settings?.shopName || 'المحل'}</h1>
+                <div className="mt-1 flex flex-col gap-0.5 text-xs text-slate-500">
+                  {settings?.ownerName && <span>المالك: {settings.ownerName}</span>}
+                  {settings?.phone && <span>تليفون: {settings.phone}</span>}
+                  {settings?.address && <span>{settings.address}</span>}
+                </div>
+              </div>
+              <div className="text-end">
+                <h2 className="text-lg font-bold">تقرير {tabLabel}</h2>
+                <div className="mt-1 text-xs text-slate-500">
+                  <div>الفترة: {rangeLabel}</div>
+                  <div>تاريخ الطباعة: {fmtDateTime(new Date())}</div>
+                </div>
+              </div>
             </div>
-            <table className="w-full border-collapse text-sm">
+
+            {/* Summary grid */}
+            <table className="w-full border border-slate-300 text-sm">
+              <thead>
+                <tr className="bg-slate-100">
+                  <th className="border border-slate-300 px-3 py-2 text-start font-bold">البيان</th>
+                  <th className="border border-slate-300 px-3 py-2 text-start font-bold">القيمة</th>
+                </tr>
+              </thead>
               <tbody>
-                {printRows.map(([k, v]) => (
-                  <tr key={k} className="border-b"><td className="px-2 py-2">{k}</td><td className="px-2 py-2 text-start font-bold">{v}</td></tr>
+                {printRows.map(([k, v], idx) => (
+                  <tr key={k} className={idx % 2 === 1 ? 'bg-slate-50' : ''}>
+                    <td className="border border-slate-300 px-3 py-2">{k}</td>
+                    <td className="border border-slate-300 px-3 py-2 font-bold font-mono">{v}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
+
+            {/* Breakdown table (products / top customers / top suppliers / supplier balances) */}
+            {printDetails && (
+              <div className="mt-6">
+                <h3 className="mb-2 font-bold">{printDetails.title}</h3>
+                <table className="w-full border border-slate-300 text-sm">
+                  <thead>
+                    <tr className="bg-slate-100">
+                      {printDetails.headers.map((h) => (
+                        <th key={h} className="border border-slate-300 px-3 py-2 text-start font-bold">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {printDetails.rows.map((row, i) => (
+                      <tr key={i} className={i % 2 === 1 ? 'bg-slate-50' : ''}>
+                        {row.map((cell, j) => (
+                          <td key={j} className={`border border-slate-300 px-3 py-2 ${j === 0 ? '' : 'font-mono'}`}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <p className="mt-6 text-center text-[10px] text-slate-400">تم إنشاء هذا التقرير آليًا من نظام إدارة المحل</p>
           </div>
         </PrintPortal>
       )}

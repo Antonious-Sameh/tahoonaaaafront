@@ -182,13 +182,14 @@ export function InventoryPage() {
       }
 
       const data = [
-        ['اسم المنتج', 'كود المنتج', 'سعر الشراء', 'سعر البيع', 'الكمية', 'الحد الأدنى', 'ربح القطعة'],
+        ['اسم المنتج', 'كود المنتج', 'الكمية', 'سعر الشراء', 'الإجمالي', 'سعر البيع', 'الحد الأدنى', 'ربح القطعة'],
         ...all.map((p) => [
           `"${p.name || ''}"`,
           `"${p.code || ''}"`,
-          p.purchasePrice || 0,
-          p.salePrice || 0,
           p.quantity || 0,
+          p.purchasePrice || 0,
+          (p.quantity || 0) * (p.purchasePrice || 0),
+          p.salePrice || 0,
           p.minQuantity || 0,
           (p.salePrice || 0) - (p.purchasePrice || 0),
         ]),
@@ -270,9 +271,10 @@ export function InventoryPage() {
               <th className={thCls}>الصورة</th>
               <th className={thCls}>اسم المنتج</th>
               <th className={thCls}>الكود</th>
-              <th className={thCls}>سعر الشراء</th>
-              <th className={thCls}>سعر البيع</th>
               <th className={thCls}>الكمية</th>
+              <th className={thCls}>سعر الشراء</th>
+              <th className={thCls}>الإجمالي</th>
+              <th className={thCls}>سعر البيع</th>
               <th className={thCls}>الحد الأدنى</th>
               <th className={thCls}>ربح القطعة</th>
               <th className={thCls}>الحالة</th>
@@ -282,7 +284,7 @@ export function InventoryPage() {
           <tbody>
             {loading && rows.length === 0 && (
               <tr>
-                <td colSpan={10} className="py-14 text-center text-muted-foreground">
+                <td colSpan={11} className="py-14 text-center text-muted-foreground">
                   <Loader2 size={20} className="mx-auto mb-2 animate-spin" />
                   جارِ تحميل المخزون...
                 </td>
@@ -292,6 +294,7 @@ export function InventoryPage() {
               const qty = Number(p.quantity) || 0;
               const min = Number(p.minQuantity) || 0;
               const unitProfit = (Number(p.salePrice) || 0) - (Number(p.purchasePrice) || 0);
+              const totalValue = qty * (Number(p.purchasePrice) || 0);
 
               return (
                 <tr key={p._id} className="border-b border-border last:border-0 hover:bg-muted/30">
@@ -300,9 +303,10 @@ export function InventoryPage() {
                   </td>
                   <td className={`${tdCls} font-semibold`}>{p.name}</td>
                   <td className={`${tdCls} font-mono text-xs text-muted-foreground`}>{p.code || '—'}</td>
-                  <td className={`${tdCls} font-mono`}>{fmtMoney(p.purchasePrice)}</td>
-                  <td className={`${tdCls} font-mono`}>{fmtMoney(p.salePrice)}</td>
                   <td className={`${tdCls} font-bold font-mono`}>{qty}</td>
+                  <td className={`${tdCls} font-mono`}>{fmtMoney(p.purchasePrice)}</td>
+                  <td className={`${tdCls} font-mono font-semibold`}>{fmtMoney(totalValue)}</td>
+                  <td className={`${tdCls} font-mono`}>{fmtMoney(p.salePrice)}</td>
                   <td className={`${tdCls} font-mono text-muted-foreground`}>{min}</td>
                   <td className={`${tdCls} font-bold font-mono text-emerald-600`}>
                     {fmtMoney(unitProfit)}

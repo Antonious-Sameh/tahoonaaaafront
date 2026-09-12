@@ -92,9 +92,17 @@ body {
   }
   #print-portal {
     display: block !important;
+    /* Without this, most browsers strip table header shading and any
+       background colors when printing by default — the grid would render
+       with borders but no header emphasis at all. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   #print-portal table {
     border-collapse: collapse;
+  }
+  @page {
+    margin: 14mm 12mm;
   }
 }
 
