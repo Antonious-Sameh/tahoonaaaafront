@@ -116,11 +116,9 @@ export function ReportsPage() {
     ];
     if (tab === 'inventory' && inventoryReport) return [
       ['عدد المنتجات', fmtNum(inventoryReport.productsCount)],
+      ['إجمالي القطع', fmtNum(inventoryReport.totalQuantity)],
       ['قيمة المخزون (شراء)', fmtMoney(inventoryReport.costValue)],
       ['قيمة المخزون (بيع)', fmtMoney(inventoryReport.saleValue)],
-      ['الربح المتوقع', fmtMoney(inventoryReport.expectedProfit)],
-      ['منتجات منخفضة', fmtNum(inventoryReport.lowCount)],
-      ['منتجات نافذة', fmtNum(inventoryReport.outCount)],
     ];
     if (tab === 'customers' && customersReport) return [
       ['عدد العملاء', fmtNum(customersReport.count)],
@@ -143,9 +141,9 @@ export function ReportsPage() {
     if (tab === 'inventory' && inventoryReport?.items?.length) {
       return {
         title: 'تفاصيل المنتجات',
-        headers: ['اسم المنتج', 'الكود', 'الكمية', 'سعر الشراء', 'الإجمالي', 'سعر البيع', 'ربح القطعة'],
+        headers: ['اسم المنتج', 'الكود', 'الكمية', 'سعر الشراء', 'الإجمالي'],
         rows: inventoryReport.items.map((p) => [
-          p.name, p.code || '—', fmtNum(p.quantity), fmtMoney(p.purchasePrice), fmtMoney(p.totalValue), fmtMoney(p.salePrice), fmtMoney(p.unitProfit),
+          p.name, p.code || '—', fmtNum(p.quantity), fmtMoney(p.purchasePrice), fmtMoney(p.totalValue),
         ]),
       };
     }
@@ -266,13 +264,11 @@ export function ReportsPage() {
       {tab === 'inventory' && (
         loading && !inventoryReport ? <Loading /> : inventoryReport && (
         <div className="grid gap-4">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Stat title="عدد المنتجات" value={fmtNum(inventoryReport.productsCount)} icon={Package} tone="bg-blue-100 text-blue-700" />
             <Stat title="إجمالي القطع" value={fmtNum(inventoryReport.totalQuantity)} icon={Package} tone="bg-violet-100 text-violet-700" />
             <Stat title="قيمة المخزون (شراء)" value={fmtMoney(inventoryReport.costValue)} icon={Wallet} tone="bg-slate-100 text-slate-700" />
             <Stat title="قيمة المخزون (بيع)" value={fmtMoney(inventoryReport.saleValue)} icon={BarChart3} tone="bg-emerald-100 text-emerald-700" />
-            <Stat title="الربح المتوقع" value={fmtMoney(inventoryReport.expectedProfit)} icon={BarChart3} tone="bg-green-100 text-green-700" />
-            <Stat title="منخفض / نافذ" value={`${fmtNum(inventoryReport.lowCount)} / ${fmtNum(inventoryReport.outCount)}`} icon={AlertTriangle} tone="bg-amber-100 text-amber-700" />
           </div>
           <div className="rounded-xl border bg-card p-4 overflow-x-auto">
             <h3 className="mb-3 font-bold">تفاصيل المنتجات</h3>
@@ -285,8 +281,6 @@ export function ReportsPage() {
                     <th className={thCls}>الكمية</th>
                     <th className={thCls}>سعر الشراء</th>
                     <th className={thCls}>الإجمالي</th>
-                    <th className={thCls}>سعر البيع</th>
-                    <th className={thCls}>ربح القطعة</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -297,8 +291,6 @@ export function ReportsPage() {
                       <td className={`${tdCls} font-mono`}>{fmtNum(p.quantity)}</td>
                       <td className={`${tdCls} font-mono`}>{fmtMoney(p.purchasePrice)}</td>
                       <td className={`${tdCls} font-mono font-semibold`}>{fmtMoney(p.totalValue)}</td>
-                      <td className={`${tdCls} font-mono`}>{fmtMoney(p.salePrice)}</td>
-                      <td className={`${tdCls} font-mono ${p.unitProfit < 0 ? 'text-destructive' : 'text-emerald-600'}`}>{fmtMoney(p.unitProfit)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -353,39 +345,29 @@ export function ReportsPage() {
 
       {printing && (
         <PrintPortal>
-          <div dir="rtl" className="bg-white p-8 text-slate-900" style={{ fontFamily: 'inherit' }}>
-            {/* Letterhead */}
-            <div className="mb-6 flex items-start justify-between border-b-2 border-slate-800 pb-4">
-              <div>
-                <h1 className="text-2xl font-extrabold tracking-tight">{settings?.shopName || 'المحل'}</h1>
-                <div className="mt-1 flex flex-col gap-0.5 text-xs text-slate-500">
-                  {settings?.ownerName && <span>المالك: {settings.ownerName}</span>}
-                  {settings?.phone && <span>تليفون: {settings.phone}</span>}
-                  {settings?.address && <span>{settings.address}</span>}
-                </div>
+          <div dir="rtl" className="bg-white p-6 text-slate-900" style={{ fontFamily: 'inherit' }}>
+            {/* Simple, spreadsheet-style header — plain text, no letterhead styling */}
+            <div className="mb-4">
+              <div className="flex items-baseline justify-between border-b border-slate-400 pb-2">
+                <span className="text-base font-bold">{settings?.shopName || 'المحل'} — تقرير {tabLabel}</span>
+                <span className="text-xs text-slate-600">{rangeLabel}</span>
               </div>
-              <div className="text-end">
-                <h2 className="text-lg font-bold">تقرير {tabLabel}</h2>
-                <div className="mt-1 text-xs text-slate-500">
-                  <div>الفترة: {rangeLabel}</div>
-                  <div>تاريخ الطباعة: {fmtDateTime(new Date())}</div>
-                </div>
-              </div>
+              <div className="mt-1 text-[11px] text-slate-500">تاريخ الطباعة: {fmtDateTime(new Date())}</div>
             </div>
 
             {/* Summary grid */}
-            <table className="w-full border border-slate-300 text-sm">
+            <table className="w-full border border-slate-400 text-sm">
               <thead>
-                <tr className="bg-slate-100">
-                  <th className="border border-slate-300 px-3 py-2 text-start font-bold">البيان</th>
-                  <th className="border border-slate-300 px-3 py-2 text-start font-bold">القيمة</th>
+                <tr className="bg-slate-200">
+                  <th className="border border-slate-400 px-2 py-1.5 text-start font-bold">البيان</th>
+                  <th className="border border-slate-400 px-2 py-1.5 text-start font-bold">القيمة</th>
                 </tr>
               </thead>
               <tbody>
                 {printRows.map(([k, v], idx) => (
                   <tr key={k} className={idx % 2 === 1 ? 'bg-slate-50' : ''}>
-                    <td className="border border-slate-300 px-3 py-2">{k}</td>
-                    <td className="border border-slate-300 px-3 py-2 font-bold font-mono">{v}</td>
+                    <td className="border border-slate-400 px-2 py-1.5">{k}</td>
+                    <td className="border border-slate-400 px-2 py-1.5 font-bold font-mono">{v}</td>
                   </tr>
                 ))}
               </tbody>
@@ -393,21 +375,23 @@ export function ReportsPage() {
 
             {/* Breakdown table (products / top customers / top suppliers / supplier balances) */}
             {printDetails && (
-              <div className="mt-6">
-                <h3 className="mb-2 font-bold">{printDetails.title}</h3>
-                <table className="w-full border border-slate-300 text-sm">
+              <div className="mt-4">
+                <h3 className="mb-1.5 font-bold">{printDetails.title}</h3>
+                <table className="w-full border border-slate-400 text-sm">
                   <thead>
-                    <tr className="bg-slate-100">
+                    <tr className="bg-slate-200">
+                      <th className="border border-slate-400 px-2 py-1.5 text-center font-bold w-10">#</th>
                       {printDetails.headers.map((h) => (
-                        <th key={h} className="border border-slate-300 px-3 py-2 text-start font-bold">{h}</th>
+                        <th key={h} className="border border-slate-400 px-2 py-1.5 text-start font-bold">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {printDetails.rows.map((row, i) => (
                       <tr key={i} className={i % 2 === 1 ? 'bg-slate-50' : ''}>
+                        <td className="border border-slate-400 px-2 py-1.5 text-center font-mono text-slate-500">{i + 1}</td>
                         {row.map((cell, j) => (
-                          <td key={j} className={`border border-slate-300 px-3 py-2 ${j === 0 ? '' : 'font-mono'}`}>{cell}</td>
+                          <td key={j} className={`border border-slate-400 px-2 py-1.5 ${j === 0 ? '' : 'font-mono'}`}>{cell}</td>
                         ))}
                       </tr>
                     ))}
