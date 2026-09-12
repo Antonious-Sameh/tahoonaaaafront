@@ -18,18 +18,8 @@ import * as customerCreditPayoutsApi from '@/services/api/customerCreditPayouts'
 import * as salesReturnsApi from '@/services/api/salesReturns';
 import { inp, btn, btnOutline, thCls, tdCls } from '@/components/shop/styles';
 
-// Fetched in one call (the backend's max page size) rather than paginated —
-// keeps this page's design close to the original (no pager UI here) while
-// comfortably covering the realistic scale this system targets. A customer
-// with more than 100 invoices/payments/returns ever would only see the most
-// recent 100 of each here.
 const HISTORY_LIMIT = 100;
 
-// Keeps exactly what the person typed on screen (so backspace/clearing feels
-// natural and the cursor never jumps to the end), while only allowing the
-// characters a decimal amount can actually contain — digits and a single
-// decimal point. Same helper as PosPage.jsx/PurchasesPage.jsx — duplicated
-// rather than shared to keep this change contained to the file that needs it.
 const sanitizeDecimalText = (raw) => {
   let value = String(raw).replace(/[^0-9.]/g, '');
   const dot = value.indexOf('.');
@@ -42,18 +32,9 @@ const decimalTextToNumber = (text) => {
   return Number.isNaN(n) ? 0 : n;
 };
 
-// Return quantities are always whole units — same "never force to 0 while
-// typing, no cursor jump" principle as sanitizeDecimalText, just digits only
-// (no decimal point) since you can't return a fractional item.
 const sanitizeIntegerText = (raw) => String(raw).replace(/[^0-9]/g, '');
 const integerTextToNumber = (text) => (text === '' ? 0 : parseInt(text, 10) || 0);
 
-// One id per return ATTEMPT (not per keystroke/render) — generated when the
-// person opens the confirm step for a given invoice, and reused if the
-// submit is retried (network error, etc.) without closing the modal. The
-// backend's unique index on this key is what makes a double-tap/network
-// retry produce exactly one return instead of two (see the phase's backend
-// design note).
 const newIdempotencyKey = () => (
   typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `ret-${Date.now()}-${Math.random().toString(36).slice(2)}`
 );
@@ -85,12 +66,11 @@ export function CustomerDetailsPage() {
   const [deletePayoutTarget, setDeletePayoutTarget] = useState(null);
   const [deletingPayout, setDeletingPayout] = useState(false);
 
-  // Returns flow: 'pick-invoice' -> 'pick-items' -> 'confirm'
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnStep, setReturnStep] = useState('pick-invoice');
-  const [returnable, setReturnable] = useState(null); // { saleId, invoiceNumber, items: [...] }
+  const [returnable, setReturnable] = useState(null);
   const [loadingReturnable, setLoadingReturnable] = useState(false);
-  const [returnQtyText, setReturnQtyText] = useState({}); // { [productId]: rawText }
+  const [returnQtyText, setReturnQtyText] = useState({});
   const [returnIdemKey, setReturnIdemKey] = useState('');
   const [submittingReturn, setSubmittingReturn] = useState(false);
 
@@ -178,10 +158,10 @@ export function CustomerDetailsPage() {
       setShowPaymentModal(false);
       setConfirmingPayment(false);
       setPaymentAmountText('');
-      await load(); // refresh totals + sales + payments from the server
+      await load();
     } catch (err) {
       toast.error(err.message || 'تعذر تسجيل السداد');
-      setConfirmingPayment(false); // back to the input step so they can adjust and retry
+      setConfirmingPayment(false);
     } finally {
       setSubmittingPayment(false);
     }
@@ -195,10 +175,10 @@ export function CustomerDetailsPage() {
       setShowPayoutModal(false);
       setConfirmingPayout(false);
       setPayoutAmountText('');
-      await load(); // refresh totals + payouts from the server
+      await load();
     } catch (err) {
       toast.error(err.message || 'تعذر تسجيل الدفع');
-      setConfirmingPayout(false); // back to the input step so they can adjust and retry
+      setConfirmingPayout(false);
     } finally {
       setSubmittingPayout(false);
     }
@@ -211,7 +191,7 @@ export function CustomerDetailsPage() {
       await customerPaymentsApi.deleteCustomerPayment(deletePaymentTarget._id);
       toast.success('تم حذف السداد وإعادة المبلغ للصندوق');
       setDeletePaymentTarget(null);
-      await load(); // refresh totals + payments from the server
+      await load();
     } catch (err) {
       toast.error(err.message || 'تعذر حذف السداد');
     } finally {
@@ -226,15 +206,13 @@ export function CustomerDetailsPage() {
       await customerCreditPayoutsApi.deleteCustomerCreditPayout(deletePayoutTarget._id);
       toast.success('تم حذف عملية الدفع، ورجع المبلغ لرصيد الصندوق');
       setDeletePayoutTarget(null);
-      await load(); // refresh totals + payouts from the server
+      await load();
     } catch (err) {
       toast.error(err.message || 'تعذر حذف العملية');
     } finally {
       setDeletingPayout(false);
     }
   };
-
-  // ---- Returns flow ----
 
   const openReturnModal = () => {
     setReturnStep('pick-invoice');
@@ -265,9 +243,6 @@ export function CustomerDetailsPage() {
     }
   };
 
-  // Lines the person actually entered a quantity for (>0), each carrying its
-  // own validity against that specific product's availableToReturn — a
-  // typo on one line never silently blocks or corrupts another.
   const returnLines = (returnable?.items || [])
     .map((it) => {
       const qty = integerTextToNumber(returnQtyText[it.productId] || '');
@@ -290,10 +265,10 @@ export function CustomerDetailsPage() {
       });
       toast.success('تم تسجيل المرتجع بنجاح');
       closeReturnModal();
-      await load(); // refresh totals + stock-affecting views + history from the server
+      await load();
     } catch (err) {
       toast.error(err.message || 'تعذر تسجيل المرتجع');
-      setReturnStep('pick-items'); // back to the input step so they can adjust and retry (same idempotency key)
+      setReturnStep('pick-items');
     } finally {
       setSubmittingReturn(false);
     }
@@ -307,7 +282,6 @@ export function CustomerDetailsPage() {
         <ArrowRight size={15} /> العودة للعملاء
       </Link>
 
-      {/* Header */}
       <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -380,7 +354,6 @@ export function CustomerDetailsPage() {
         </div>
       </div>
 
-      {/* Sales history */}
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
         <table className="w-full text-start">
           <thead>
@@ -411,9 +384,6 @@ export function CustomerDetailsPage() {
         {sales.length === 0 && <Empty text="لا توجد فواتير مسجلة لهذا العميل" />}
       </div>
 
-      {/* Payment (settlement) history — standalone from the sales above:
-          each row here reduces the customer's running balance without
-          changing any invoice's own recorded paid/remaining. */}
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
         <div className="border-b border-border px-4 py-3">
           <h3 className="text-sm font-semibold text-foreground">سجل السداد</h3>
@@ -449,9 +419,6 @@ export function CustomerDetailsPage() {
         {payments.length === 0 && <Empty text="لا توجد عمليات سداد مسجلة لهذا العميل" />}
       </div>
 
-      {/* Credit payout history — money the shop has paid BACK to the
-          customer against a creditOwed balance (see
-          customerCreditPayout.service.js). Only rendered when relevant. */}
       {(payouts.length > 0 || t.creditOwed > 0) && (
         <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
           <div className="border-b border-border px-4 py-3">
@@ -489,9 +456,6 @@ export function CustomerDetailsPage() {
         </div>
       )}
 
-      {/* Returns history — standalone from the sales above: each row here
-          restores stock and reduces the customer's running balance without
-          changing the original sale's own recorded items/paid/remaining. */}
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
         <div className="border-b border-border px-4 py-3">
           <h3 className="text-sm font-semibold text-foreground">سجل المرتجعات</h3>
@@ -524,7 +488,6 @@ export function CustomerDetailsPage() {
         {returns.length === 0 && <Empty text="لا توجد مرتجعات مسجلة لهذا العميل" />}
       </div>
 
-      {/* Record payment modal */}
       <Modal open={showPaymentModal} onClose={closePaymentModal} title="تسجيل سداد">
         {!confirmingPayment ? (
           <div className="grid gap-4">
@@ -588,7 +551,6 @@ export function CustomerDetailsPage() {
         )}
       </Modal>
 
-      {/* Pay out credit owed to the customer */}
       <Modal open={showPayoutModal} onClose={closePayoutModal} title="دفع مستحق للعميل">
         {!confirmingPayout ? (
           <div className="grid gap-4">
@@ -652,7 +614,6 @@ export function CustomerDetailsPage() {
         )}
       </Modal>
 
-      {/* Return flow modal: pick invoice -> pick quantities per product -> confirm */}
       <Modal open={showReturnModal} onClose={closeReturnModal} title="تسجيل مرتجع" wide={returnStep !== 'pick-invoice'}>
         {returnStep === 'pick-invoice' && (
           <div className="grid gap-3">
