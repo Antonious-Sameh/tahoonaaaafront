@@ -201,6 +201,14 @@ export function CashboxPage() {
                       ? 'عملية شراء'
                       : t.refType === 'expense'
                       ? 'مصروفات'
+                      : t.refType === 'customer_payment'
+                      ? 'سداد عميل'
+                      : t.refType === 'supplier_payment'
+                      ? 'سداد مورد'
+                      : t.refType === 'customer_credit_payout'
+                      ? 'دفع مستحق لعميل'
+                      : t.refType === 'supplier_credit_receipt'
+                      ? 'استلام مستحق من مورد'
                       : 'حركة يدوية'}
                   </span>
                 </td>

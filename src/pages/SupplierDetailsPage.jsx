@@ -14,6 +14,7 @@ import { usePrint } from '@/hooks/usePrint';
 import * as suppliersApi from '@/services/api/suppliers';
 import * as purchasesApi from '@/services/api/purchases';
 import * as supplierPaymentsApi from '@/services/api/supplierPayments';
+import * as supplierCreditReceiptsApi from '@/services/api/supplierCreditReceipts';
 import * as purchaseReturnsApi from '@/services/api/purchaseReturns';
 import { inp, btn, btnOutline, thCls, tdCls } from '@/components/shop/styles';
 
@@ -62,6 +63,7 @@ export function SupplierDetailsPage() {
   const [supplier, setSupplier] = useState(null);
   const [purchases, setPurchases] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [receipts, setReceipts] = useState([]);
   const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -72,8 +74,15 @@ export function SupplierDetailsPage() {
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [paymentIdemKey, setPaymentIdemKey] = useState('');
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [receiptAmountText, setReceiptAmountText] = useState('');
+  const [confirmingReceipt, setConfirmingReceipt] = useState(false);
+  const [submittingReceipt, setSubmittingReceipt] = useState(false);
+  const [receiptIdemKey, setReceiptIdemKey] = useState('');
   const [deletePaymentTarget, setDeletePaymentTarget] = useState(null);
   const [deletingPayment, setDeletingPayment] = useState(false);
+  const [deleteReceiptTarget, setDeleteReceiptTarget] = useState(null);
+  const [deletingReceipt, setDeletingReceipt] = useState(false);
 
   // Returns flow: 'pick-invoice' -> 'pick-items' -> 'confirm'
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -88,16 +97,18 @@ export function SupplierDetailsPage() {
     setLoading(true);
     setNotFound(false);
     try {
-      const [supplierRes, purchasesRes, paymentsRes, returnsRes] = await Promise.all([
+      const [supplierRes, purchasesRes, paymentsRes, returnsRes, receiptsRes] = await Promise.all([
         suppliersApi.getSupplier(id),
         purchasesApi.listPurchases({ supplierId: id, limit: HISTORY_LIMIT }),
         supplierPaymentsApi.listSupplierPayments({ supplierId: id, limit: HISTORY_LIMIT }),
         purchaseReturnsApi.listPurchaseReturns({ supplierId: id, limit: HISTORY_LIMIT }),
+        supplierCreditReceiptsApi.listSupplierCreditReceipts({ supplierId: id, limit: HISTORY_LIMIT }),
       ]);
       setSupplier(supplierRes.data);
       setPurchases(purchasesRes.data);
       setPayments(paymentsRes.data);
       setReturns(returnsRes.data);
+      setReceipts(receiptsRes.data);
     } catch (err) {
       if (err.status === 404) setNotFound(true);
       else toast.error(err.message || 'تعذر تحميل بيانات المورد');
@@ -127,6 +138,11 @@ export function SupplierDetailsPage() {
   const paymentValid = paymentAmount > 0 && !paymentExceedsRemaining;
   const newBalancePreview = Math.max(0, t.remaining - Math.min(paymentAmount, t.remaining));
 
+  const receiptAmount = decimalTextToNumber(receiptAmountText);
+  const receiptExceedsCreditOwed = receiptAmount > (t.creditOwed || 0);
+  const receiptValid = receiptAmount > 0 && !receiptExceedsCreditOwed;
+  const newCreditOwedPreview = Math.max(0, (t.creditOwed || 0) - Math.min(receiptAmount, t.creditOwed || 0));
+
   const openPaymentModal = () => {
     setPaymentAmountText('');
     setConfirmingPayment(false);
@@ -138,6 +154,19 @@ export function SupplierDetailsPage() {
     setShowPaymentModal(false);
     setConfirmingPayment(false);
     setPaymentAmountText('');
+  };
+
+  const openReceiptModal = () => {
+    setReceiptAmountText('');
+    setConfirmingReceipt(false);
+    setReceiptIdemKey(newIdempotencyKey());
+    setShowReceiptModal(true);
+  };
+  const closeReceiptModal = () => {
+    if (submittingReceipt) return;
+    setShowReceiptModal(false);
+    setConfirmingReceipt(false);
+    setReceiptAmountText('');
   };
 
   const submitPayment = async () => {
@@ -169,6 +198,38 @@ export function SupplierDetailsPage() {
       toast.error(err.message || 'تعذر حذف السداد');
     } finally {
       setDeletingPayment(false);
+    }
+  };
+
+  const submitReceipt = async () => {
+    setSubmittingReceipt(true);
+    try {
+      await supplierCreditReceiptsApi.createSupplierCreditReceipt({ supplierId: id, amount: receiptAmount, idempotencyKey: receiptIdemKey });
+      toast.success('تم تسجيل الاستلام، وتمت إضافته لرصيد الصندوق');
+      setShowReceiptModal(false);
+      setConfirmingReceipt(false);
+      setReceiptAmountText('');
+      await load(); // refresh totals + receipts from the server
+    } catch (err) {
+      toast.error(err.message || 'تعذر تسجيل الاستلام');
+      setConfirmingReceipt(false); // back to the input step so they can adjust and retry
+    } finally {
+      setSubmittingReceipt(false);
+    }
+  };
+
+  const handleDeleteReceipt = async () => {
+    if (!deleteReceiptTarget) return;
+    setDeletingReceipt(true);
+    try {
+      await supplierCreditReceiptsApi.deleteSupplierCreditReceipt(deleteReceiptTarget._id);
+      toast.success('تم حذف عملية الاستلام، وتم خصمها من رصيد الصندوق');
+      setDeleteReceiptTarget(null);
+      await load(); // refresh totals + receipts from the server
+    } catch (err) {
+      toast.error(err.message || 'تعذر حذف العملية');
+    } finally {
+      setDeletingReceipt(false);
     }
   };
 
@@ -264,6 +325,14 @@ export function SupplierDetailsPage() {
             >
               <Wallet size={15} /> تسجيل سداد
             </button>
+            {t.creditOwed > 0 && (
+              <button
+                onClick={openReceiptModal}
+                className={`${btn} !h-9 !bg-emerald-600 hover:!bg-emerald-700`}
+              >
+                <Wallet size={15} /> استلام مستحق من المورد
+              </button>
+            )}
             <button
               onClick={openReturnModal}
               disabled={purchases.length === 0}
@@ -379,6 +448,46 @@ export function SupplierDetailsPage() {
         {payments.length === 0 && <Empty text="لا توجد عمليات سداد مسجلة لهذا المورد" />}
       </div>
 
+      {/* Credit receipt history — money the shop has received BACK from the
+          supplier against a creditOwed balance (see
+          supplierCreditReceipt.service.js). Only rendered when relevant. */}
+      {(receipts.length > 0 || t.creditOwed > 0) && (
+        <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-4 py-3">
+            <h3 className="text-sm font-semibold text-foreground">سجل استلام المستحق من المورد</h3>
+          </div>
+          <table className="w-full text-start">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className={thCls}>التاريخ والوقت</th>
+                <th className={thCls}>المبلغ المستلم</th>
+                <th className={thCls}>المستحق بعد الاستلام</th>
+                <th className={thCls}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {receipts.map((r) => (
+                <tr key={r._id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                  <td className={`${tdCls} text-muted-foreground`}>{fmtDateTime(r.date)}</td>
+                  <td className={`${tdCls} font-mono font-semibold text-emerald-600`}>{fmtMoney(r.amount)}</td>
+                  <td className={`${tdCls} font-mono`}>{fmtMoney(r.creditOwedAfter)}</td>
+                  <td className={`${tdCls} text-end`}>
+                    <button
+                      onClick={() => setDeleteReceiptTarget(r)}
+                      className="rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
+                      title="حذف عملية الاستلام (تسجيل غلط)"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {receipts.length === 0 && <Empty text="لا توجد عمليات استلام مستحق مسجلة لهذا المورد" />}
+        </div>
+      )}
+
       {/* Returns history — standalone from the purchases above: each row
           here sends stock back OUT to the supplier and reduces our running
           balance without changing the original purchase's own recorded
@@ -473,6 +582,70 @@ export function SupplierDetailsPage() {
               <button className={btnOutline} onClick={() => setConfirmingPayment(false)} disabled={submittingPayment}>رجوع</button>
               <button className={btn} onClick={submitPayment} disabled={submittingPayment}>
                 {submittingPayment && <Loader2 size={14} className="animate-spin" />} تأكيد السداد
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Receive credit owed from the supplier */}
+      <Modal open={showReceiptModal} onClose={closeReceiptModal} title="استلام مستحق من المورد">
+        {!confirmingReceipt ? (
+          <div className="grid gap-4">
+            <div className="rounded-lg bg-muted/40 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">المستحق من المورد حاليًا</span>
+                <b className="font-mono text-emerald-700">{fmtMoney(t.creditOwed || 0)}</b>
+              </div>
+            </div>
+
+            <Field label="المبلغ اللي استلمته">
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                autoFocus
+                className={`${inp} font-mono`}
+                value={receiptAmountText}
+                onChange={(e) => setReceiptAmountText(sanitizeDecimalText(e.target.value))}
+                placeholder="0"
+              />
+              {receiptExceedsCreditOwed && (
+                <p className="mt-1 text-xs font-semibold text-destructive">المبلغ أكبر من المستحق الفعلي من هذا المورد</p>
+              )}
+            </Field>
+
+            <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">المستحق الجديد بعد الاستلام</span>
+                <b className="font-mono text-primary">{fmtMoney(newCreditOwedPreview)}</b>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button className={btnOutline} onClick={closeReceiptModal}>إلغاء</button>
+              <button className={btn} disabled={!receiptValid} onClick={() => setConfirmingReceipt(true)}>
+                متابعة
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-50">
+                <CheckCircle2 size={16} className="text-emerald-600" />
+              </div>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                هل تريد تسجيل استلام <b className="font-mono text-foreground">{fmtMoney(receiptAmount)}</b> نقدًا من
+                المورد <b className="text-foreground">{supplier.name}</b>؟
+                <br />
+                سيصبح المستحق منه <b className="font-mono text-foreground">{fmtMoney(newCreditOwedPreview)}</b>.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className={btnOutline} onClick={() => setConfirmingReceipt(false)} disabled={submittingReceipt}>رجوع</button>
+              <button className={btn} onClick={submitReceipt} disabled={submittingReceipt}>
+                {submittingReceipt && <Loader2 size={14} className="animate-spin" />} تأكيد الاستلام
               </button>
             </div>
           </div>
@@ -703,10 +876,35 @@ export function SupplierDetailsPage() {
               </>
             )}
 
+            {receipts.length > 0 && (
+              <>
+                <h2 className="mb-2 mt-6 text-base font-bold">سجل استلام المستحق من المورد</h2>
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-black/20">
+                      <th className="p-2 text-start">التاريخ والوقت</th>
+                      <th className="p-2 text-start">المبلغ المستلم</th>
+                      <th className="p-2 text-start">المستحق بعد الاستلام</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {receipts.map((r) => (
+                      <tr key={r._id} className="border-b border-black/10">
+                        <td className="p-2">{fmtDateTime(r.date)}</td>
+                        <td className="p-2 font-mono">{fmtMoney(r.amount)}</td>
+                        <td className="p-2 font-mono">{fmtMoney(r.creditOwedAfter)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+
             <div className="mt-4 flex justify-end gap-8 text-sm font-bold">
               <span>الإجمالي: {fmtMoney(t.total)}</span>
               <span>المدفوع: {fmtMoney(t.paid)}</span>
               <span>المتبقي: {fmtMoney(t.remaining)}</span>
+              {t.creditOwed > 0 && <span>المستحق من المورد: {fmtMoney(t.creditOwed)}</span>}
             </div>
           </div>
         </PrintPortal>
@@ -718,6 +916,14 @@ export function SupplierDetailsPage() {
         title="حذف سداد"
         description={`هل أنت متأكد من حذف سداد بقيمة ${fmtMoney(deletePaymentTarget?.amount || 0)}؟ سيتم إرجاع المبلغ لرصيد الصندوق والمبلغ المستحق للمورد سيرتفع بنفس القيمة.`}
         onConfirm={handleDeletePayment}
+      />
+
+      <Confirm
+        open={!!deleteReceiptTarget}
+        onClose={() => { if (!deletingReceipt) setDeleteReceiptTarget(null); }}
+        title="حذف عملية استلام مستحق"
+        description={`هل أنت متأكد من حذف عملية استلام بقيمة ${fmtMoney(deleteReceiptTarget?.amount || 0)}؟ سيتم خصم المبلغ من رصيد الصندوق، والمستحق من المورد سيرتفع بنفس القيمة.`}
+        onConfirm={handleDeleteReceipt}
       />
     </div>
   );
