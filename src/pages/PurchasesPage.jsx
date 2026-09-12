@@ -215,7 +215,7 @@ export function PurchasesPage() {
 
     setSaving(true);
     try {
-      await purchasesApi.createPurchase({
+      const res = await purchasesApi.createPurchase({
         supplierId,
         paymentMethod,
         paid,
@@ -229,6 +229,14 @@ export function PurchasesPage() {
         })),
       });
       toast.success('تم تسجيل عملية الشراء بنجاح');
+      if (res.data?.priceWarnings?.length) {
+        res.data.priceWarnings.forEach((w) => {
+          toast.warning(
+            `سعر شراء "${w.name}" بقى ${fmtMoney(w.purchasePrice)}، وده أعلى من أو يساوي سعر بيعه الحالي (${fmtMoney(w.salePrice)}) — يُنصح بمراجعة سعر البيع`,
+            { duration: 8000 },
+          );
+        });
+      }
       setLines([]);
       setSupplierId('');
       setPaidInput('');

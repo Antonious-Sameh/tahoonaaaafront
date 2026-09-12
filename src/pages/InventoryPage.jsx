@@ -241,6 +241,7 @@ export function InventoryPage() {
           <option value="available">متوفر</option>
           <option value="low">منخفض</option>
           <option value="out">نافذ</option>
+          <option value="needsReview">محتاج مراجعة سعر</option>
           <option value="hidden">مخفي (له فواتير سابقة)</option>
         </select>
 
