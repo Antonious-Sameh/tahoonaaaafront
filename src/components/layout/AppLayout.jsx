@@ -154,6 +154,9 @@ export function AppLayout() {
           </div>
         </div>
         <SidebarNav />
+        <div className="shrink-0 border-t border-slate-800 px-4 py-2.5 text-center text-[10px] text-slate-500">
+          تطوير: م. أنطونيوس سامح — 01223307593
+        </div>
       </aside>
 
       {/* Mobile Sidebar Overlay */}

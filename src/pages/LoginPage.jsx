@@ -142,6 +142,10 @@ export function LoginPage() {
             </button>
           </form>
         </div>
+
+        <p className="mt-6 text-center text-[11px] text-slate-500">
+          تطوير: م. أنطونيوس سامح — 01223307593
+        </p>
       </div>
     </div>
   );

@@ -144,6 +144,8 @@ export function InvoiceView({ sale, customer, settings }) {
           <div className="h-7 w-40 bg-[repeating-linear-gradient(90deg,#000_0px,#000_2px,transparent_2px,transparent_4px,#000_4px,#000_6px,transparent_6px,transparent_7px,#000_7px,#000_10px)]" />
           <span className="text-[9px] font-mono text-slate-400 tracking-widest">#{sale.invoiceNumber}</span>
         </div>
+
+        <p className="text-[9px] text-slate-400">تطوير: م. أنطونيوس سامح — 01223307593</p>
       </div>
     </div>
   );
