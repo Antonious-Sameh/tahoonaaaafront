@@ -84,7 +84,7 @@ export function DashboardPage() {
         if (cancelled) return;
 
         if (cashboxR.status === 'fulfilled') setBalance(cashboxR.value.data.balance);
-        if (salesR.status === 'fulfilled') setTodaySalesTotal(salesR.value.data.revenue);
+        if (salesR.status === 'fulfilled') setTodaySalesTotal(salesR.value.data.grossSales);
         if (purchasesR.status === 'fulfilled') setTodayPurchasesTotal(purchasesR.value.data.total);
         if (expensesR.status === 'fulfilled') setTodayExpensesTotal(expensesR.value.data.todayTotal);
         if (custR.status === 'fulfilled') setCustDebt(custR.value.data.totalOutstanding);

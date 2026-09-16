@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet';
 import { toast } from 'sonner';
 import {
   Printer, ShoppingCart, ShoppingBag, Package, Users, Truck, Receipt, Wallet,
-  History, ArrowDownCircle, AlertTriangle, BarChart3, Loader2,
+  History, ArrowDownCircle, AlertTriangle, BarChart3, Loader2, Undo2,
 } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { fmtMoney, fmtNum, fmtDate, fmtDateTime } from '@/lib/formatters';
@@ -94,7 +94,9 @@ export function ReportsPage() {
 
   const printRows = useMemo(() => {
     if (tab === 'sales' && salesReport) return [
-      ['إجمالي المبيعات', fmtMoney(salesReport.revenue)],
+      ['إجمالي المبيعات (Gross)', fmtMoney(salesReport.grossSales)],
+      ['قيمة المرتجعات', fmtMoney(salesReport.salesReturns)],
+      ['صافي المبيعات (Net)', fmtMoney(salesReport.netSales)],
       ['عدد الفواتير', fmtNum(salesReport.invoiceCount)],
       ['مبيعات نقدية', fmtMoney(salesReport.cashTotal)],
       ['مبيعات آجلة', fmtMoney(salesReport.creditTotal)],
@@ -108,11 +110,15 @@ export function ReportsPage() {
       ['آجل غير مسدّد عند الشراء', fmtMoney(purchasesReport.creditOutstandingAtPurchase)],
     ];
     if (tab === 'profit' && profitReport) return [
-      ['إيراد المبيعات', fmtMoney(profitReport.revenue)],
-      ['تكلفة البضاعة المباعة', fmtMoney(profitReport.cogs)],
-      ['مجمل الربح', fmtMoney(profitReport.gross)],
+      ['إجمالي المبيعات (Gross)', fmtMoney(profitReport.grossSales)],
+      ['قيمة المرتجعات', fmtMoney(profitReport.salesReturns)],
+      ['صافي الإيراد (Net Revenue)', fmtMoney(profitReport.netRevenue)],
+      ['تكلفة البضاعة المباعة (Gross COGS)', fmtMoney(profitReport.grossCogs)],
+      ['تكلفة البضاعة المرتجعة', fmtMoney(profitReport.returnedCogs)],
+      ['صافي التكلفة (Net COGS)', fmtMoney(profitReport.netCogs)],
+      ['مجمل الربح (Gross Profit)', fmtMoney(profitReport.grossProfit)],
       ['المصروفات', fmtMoney(profitReport.expenses)],
-      ['صافي الربح', fmtMoney(profitReport.net)],
+      ['صافي الربح (Net Profit)', fmtMoney(profitReport.net)],
     ];
     if (tab === 'inventory' && inventoryReport) return [
       ['عدد المنتجات', fmtNum(inventoryReport.productsCount)],
@@ -200,23 +206,27 @@ export function ReportsPage() {
       {tab === 'sales' && (
         loading && !salesReport ? <Loading /> : salesReport && (
         <div className="grid gap-4">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <Stat title="إجمالي المبيعات" value={fmtMoney(salesReport.revenue)} icon={ShoppingCart} tone="bg-emerald-100 text-emerald-700" />
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-7">
+            <Stat title="إجمالي المبيعات (Gross)" value={fmtMoney(salesReport.grossSales)} icon={ShoppingCart} tone="bg-blue-100 text-blue-700" />
+            <Stat title="قيمة المرتجعات" value={fmtMoney(salesReport.salesReturns)} icon={Undo2} tone="bg-amber-100 text-amber-700" />
+            <Stat title="صافي المبيعات (Net)" value={fmtMoney(salesReport.netSales)} icon={ShoppingCart} tone="bg-emerald-100 text-emerald-700" />
             <Stat title="عدد الفواتير" value={fmtNum(salesReport.invoiceCount)} icon={Receipt} tone="bg-blue-100 text-blue-700" />
             <Stat title="مبيعات نقدية" value={fmtMoney(salesReport.cashTotal)} icon={Wallet} tone="bg-green-100 text-green-700" />
             <Stat title="مبيعات آجلة" value={fmtMoney(salesReport.creditTotal)} icon={History} tone="bg-amber-100 text-amber-700" />
             <Stat title="المحصل" value={fmtMoney(salesReport.paid)} icon={ArrowDownCircle} tone="bg-emerald-100 text-emerald-700" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-7">
             <Stat title="آجل غير محصّل عند البيع" value={fmtMoney(salesReport.creditOutstandingAtSale)} icon={AlertTriangle} tone="bg-red-100 text-red-700" />
           </div>
           <p className="-mt-2 text-xs text-muted-foreground">
-            "آجل غير محصّل عند البيع" بيعكس فواتير الفترة دي وقت تسجيلها ناقص أي مرتجعات عليها، ومش بياخد بالحسبان دفعات "تسجيل سداد" المنفصلة — للرصيد الحالي الفعلي لكل عميل، شوف تبويب "العملاء".
+            "قيمة المرتجعات" هنا بتحسب أي مرتجع اتسجل فعليًا في الفترة دي (بتاريخ المرتجع نفسه)، حتى لو الفاتورة الأصلية كانت في فترة سابقة — عشان تقرير كل فترة يعكس اللي حصل فيها بالظبط ومايتغيّرش رجعيًا. "آجل غير محصّل عند البيع" بيعكس فواتير الفترة دي وقت تسجيلها ناقص أي مرتجعات عليها، ومش بياخد بالحسبان دفعات "تسجيل سداد" المنفصلة — للرصيد الحالي الفعلي لكل عميل، شوف تبويب "العملاء".
           </p>
           <div className="rounded-xl border bg-card p-4">
             <h3 className="mb-3 font-bold">الأكثر مبيعاً</h3>
             {salesReport.bestSellers.length === 0 ? <Empty text="لا توجد مبيعات في هذه الفترة" /> : (
               <table className="w-full">
-                <thead><tr className="border-b"><th className={thCls}>المنتج</th><th className={thCls}>الكمية المباعة</th><th className={thCls}>إجمالي المبيعات</th></tr></thead>
-                <tbody>{salesReport.bestSellers.map((b) => <tr key={b.productId} className="border-b last:border-0"><td className={tdCls}>{b.name}</td><td className={tdCls}>{b.qty}</td><td className={`${tdCls} font-bold`}>{fmtMoney(b.total)}</td></tr>)}</tbody>
+                <thead><tr className="border-b"><th className={thCls}>المنتج</th><th className={thCls}>مباع (Gross)</th><th className={thCls}>مرتجع</th><th className={thCls}>صافي (Net)</th><th className={thCls}>إجمالي المبيعات</th></tr></thead>
+                <tbody>{salesReport.bestSellers.map((b) => <tr key={b.productId} className="border-b last:border-0"><td className={tdCls}>{b.name}</td><td className={tdCls}>{b.grossSold}</td><td className={`${tdCls} ${b.returned > 0 ? 'text-amber-600 font-semibold' : ''}`}>{b.returned || '—'}</td><td className={tdCls}>{b.netSold}</td><td className={`${tdCls} font-bold`}>{fmtMoney(b.total)}</td></tr>)}</tbody>
               </table>
             )}
           </div>
@@ -251,12 +261,34 @@ export function ReportsPage() {
 
       {tab === 'profit' && (
         loading && !profitReport ? <Loading /> : profitReport && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <Stat title="إيراد المبيعات" value={fmtMoney(profitReport.revenue)} icon={ShoppingCart} tone="bg-blue-100 text-blue-700" />
-          <Stat title="تكلفة البضاعة" value={fmtMoney(profitReport.cogs)} icon={Package} tone="bg-slate-100 text-slate-700" />
-          <Stat title="مجمل الربح" value={fmtMoney(profitReport.gross)} icon={BarChart3} tone="bg-emerald-100 text-emerald-700" />
-          <Stat title="المصروفات" value={fmtMoney(profitReport.expenses)} icon={Receipt} tone="bg-red-100 text-red-700" />
-          <Stat title="صافي الربح" value={fmtMoney(profitReport.net)} icon={Wallet} tone="bg-emerald-100 text-emerald-700" />
+        <div className="grid gap-4">
+          <div>
+            <h3 className="mb-2 text-xs font-bold text-muted-foreground">المبيعات</h3>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <Stat title="إجمالي المبيعات (Gross)" value={fmtMoney(profitReport.grossSales)} icon={ShoppingCart} tone="bg-blue-100 text-blue-700" />
+              <Stat title="قيمة المرتجعات" value={fmtMoney(profitReport.salesReturns)} icon={Undo2} tone="bg-amber-100 text-amber-700" />
+              <Stat title="صافي الإيراد (Net Revenue)" value={fmtMoney(profitReport.netRevenue)} icon={ShoppingCart} tone="bg-emerald-100 text-emerald-700" />
+            </div>
+          </div>
+          <div>
+            <h3 className="mb-2 text-xs font-bold text-muted-foreground">تكلفة البضاعة</h3>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <Stat title="تكلفة البضاعة المباعة (Gross COGS)" value={fmtMoney(profitReport.grossCogs)} icon={Package} tone="bg-slate-100 text-slate-700" />
+              <Stat title="تكلفة البضاعة المرتجعة" value={fmtMoney(profitReport.returnedCogs)} icon={Undo2} tone="bg-amber-100 text-amber-700" />
+              <Stat title="صافي التكلفة (Net COGS)" value={fmtMoney(profitReport.netCogs)} icon={Package} tone="bg-slate-100 text-slate-700" />
+            </div>
+          </div>
+          <div>
+            <h3 className="mb-2 text-xs font-bold text-muted-foreground">الربح</h3>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <Stat title="مجمل الربح (Gross Profit)" value={fmtMoney(profitReport.grossProfit)} icon={BarChart3} tone="bg-emerald-100 text-emerald-700" />
+              <Stat title="المصروفات" value={fmtMoney(profitReport.expenses)} icon={Receipt} tone="bg-red-100 text-red-700" />
+              <Stat title="صافي الربح (Net Profit)" value={fmtMoney(profitReport.net)} icon={Wallet} tone="bg-emerald-100 text-emerald-700" />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            كل أرقام "المرتجعات" هنا بتحسب المرتجعات اللي اتسجلت فعليًا في الفترة دي (بتاريخ المرتجع نفسه)، بنفس منطق تبويب المبيعات بالظبط — عشان الاتنين ميختلفوش مع بعض. مجمل الربح = صافي الإيراد - صافي التكلفة (مش الأرقام الإجمالية قبل المرتجعات).
+          </p>
         </div>
         )
       )}
