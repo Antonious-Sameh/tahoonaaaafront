@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { Minus, Plus, Trash2, Printer, Share2, Search, PackagePlus, Pencil, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,9 +24,11 @@ import { inp, btn, btnOutline } from '@/components/shop/styles';
 // POS is a "search then pick" flow, not a browsable catalog — a generous,
 // unpaginated result set covers realistic use without needing pager UI here.
 const PRODUCT_PICKER_LIMIT = 40;
-// Same reasoning as the customer/supplier detail pages: one batch instead of
-// a paginated/async-searchable picker. A shop with more than 100 customers
-// would only see the first 100 (by creation order) in this quick-picker.
+// Same reasoning, now also true for the customer picker: it searches the
+// server as the person types (see the debounced effect below) rather than
+// filtering one fixed batch, so a shop with more than 100 customers can
+// still find and select any of them — this cap only bounds one search's
+// result page, not how many customers are reachable overall.
 const CUSTOMER_PICKER_LIMIT = 100;
 
 // Keeps exactly what the person typed on screen (so backspace/clearing feels
@@ -53,6 +55,8 @@ export function PosPage() {
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customersLoading, setCustomersLoading] = useState(false);
   const [customerId, setCustomerId] = useState('');
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', address: '' });
@@ -78,11 +82,44 @@ export function PosPage() {
     if (productsError) toast.error(productsError.message || 'تعذر تحميل المنتجات');
   }, [productsError]);
 
+  const debouncedCustomerSearch = useDebounce(customerSearch);
+  // Read inside the search effect without being a dependency of it — a
+  // customer selection alone must never re-trigger a network search, only
+  // the typed query should (see the effect below).
+  const customerIdRef = useRef(customerId);
+  customerIdRef.current = customerId;
+
+  // Searches the server as the person types (same pattern as the product
+  // picker above) instead of loading one fixed batch of the first 100
+  // customers up front — a shop with more than 100 customers previously
+  // could never find/select anyone past that first batch here, no matter
+  // what they typed, since the old one-time fetch never looked at the
+  // search text at all.
   useEffect(() => {
-    customersApi.listCustomers({ limit: CUSTOMER_PICKER_LIMIT })
-      .then((res) => setCustomers(res.data))
-      .catch((err) => toast.error(err.message || 'تعذر تحميل العملاء'));
-  }, []);
+    let cancelled = false;
+    setCustomersLoading(true);
+    customersApi.listCustomers({ search: debouncedCustomerSearch, limit: CUSTOMER_PICKER_LIMIT })
+      .then((res) => {
+        if (cancelled) return;
+        // A fresh search naturally replaces the list — but if the
+        // currently-selected customer isn't in these new results (e.g.
+        // they were found via an earlier search, then the search box was
+        // cleared/reopened), keep them in the list anyway. Otherwise the
+        // picker would silently lose track of who's selected — showing
+        // the empty placeholder again and breaking the invoice's customer
+        // name lookup after the sale completes — the instant the search
+        // text changed for any reason, with the selection itself untouched.
+        setCustomers((prev) => {
+          const id = customerIdRef.current;
+          if (!id || res.data.some((c) => c._id === id)) return res.data;
+          const stillSelected = prev.find((c) => c._id === id);
+          return stillSelected ? [stillSelected, ...res.data] : res.data;
+        });
+      })
+      .catch((err) => { if (!cancelled) toast.error(err.message || 'تعذر تحميل العملاء'); })
+      .finally(() => { if (!cancelled) setCustomersLoading(false); });
+    return () => { cancelled = true; };
+  }, [debouncedCustomerSearch]);
 
   useEffect(() => {
     const handler = (e) => { if (cart.length > 0) { e.preventDefault(); e.returnValue = ''; } };
@@ -224,6 +261,8 @@ export function PosPage() {
               placeholder="عميل نقدي"
               searchPlaceholder="ابحث بالاسم أو الهاتف..."
               emptyText="لا يوجد عملاء مطابقون"
+              onQueryChange={setCustomerSearch}
+              searching={customersLoading}
             />
           </Field>
           {!showNewCustomer ? (

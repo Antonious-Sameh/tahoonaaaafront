@@ -15,6 +15,15 @@ export function SearchSelect({
   searchPlaceholder = 'ابحث...',
   emptyText = 'لا توجد نتائج',
   clearable = true,
+  // Optional: called with the raw typed query on every keystroke, so a
+  // parent can run its own server-side search (e.g. for a list too large
+  // to hand over as `options` in full) instead of relying purely on the
+  // client-side filtering below. Backward compatible: when omitted,
+  // behavior is unchanged — `options` is filtered client-side as before.
+  onQueryChange,
+  // Optional: shows a small inline spinner next to the search input while
+  // a parent-driven server search (see onQueryChange) is in flight.
+  searching = false,
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -33,6 +42,7 @@ export function SearchSelect({
   const openList = () => {
     setOpen(true);
     setQ('');
+    onQueryChange?.('');
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
@@ -40,6 +50,7 @@ export function SearchSelect({
     onChange(id);
     setOpen(false);
     setQ('');
+    onQueryChange?.('');
   };
 
   return (
@@ -72,13 +83,16 @@ export function SearchSelect({
           <Search size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             ref={inputRef}
-            className="h-10 w-full rounded-md border border-ring bg-card ps-9 pe-3 text-sm outline-none ring-2 ring-ring/20 placeholder:text-muted-foreground/60"
+            className="h-10 w-full rounded-md border border-ring bg-card ps-9 pe-8 text-sm outline-none ring-2 ring-ring/20 placeholder:text-muted-foreground/60"
             placeholder={searchPlaceholder}
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => { setQ(e.target.value); onQueryChange?.(e.target.value); }}
             onBlur={() => setTimeout(() => setOpen(false), 120)}
             onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}
           />
+          {searching && (
+            <span className="absolute end-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-transparent" />
+          )}
         </div>
       )}
 

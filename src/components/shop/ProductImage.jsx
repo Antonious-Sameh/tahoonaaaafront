@@ -27,6 +27,8 @@ export function ProductImage({ src, alt, size = 'md', className = '' }) {
     <img
       src={src}
       alt={alt || ''}
+      loading="lazy"
+      decoding="async"
       onError={() => setFailed(true)}
       className={`${dim} shrink-0 rounded-lg border object-cover ${className}`}
     />

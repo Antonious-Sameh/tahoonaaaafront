@@ -49,7 +49,22 @@ export function DashboardPage() {
     setLoadingStats(true);
     const today = todayStr();
 
-    Promise.all([
+    // Promise.allSettled (not Promise.all) is deliberate: with Promise.all,
+    // ANY ONE of these 8 calls failing would reject the whole batch and
+    // skip .then() entirely — every stat would then silently sit at its
+    // initial state of 0 (not the "—" loading placeholder, since
+    // loadingStats still flips to false in .finally()), with only a toast
+    // (easy to miss/dismiss) hinting that something went wrong. That
+    // produced a confirmed, confusing "everything shows 0" bug. Each
+    // section is now applied independently, so one failing endpoint only
+    // blanks its own card(s) instead of the whole dashboard, and a toast
+    // names which section failed.
+    const labels = {
+      cashbox: 'رصيد الصندوق', sales: 'مبيعات اليوم', purchases: 'مشتريات اليوم', expenses: 'مصروفات اليوم',
+      customers: 'مستحقات العملاء', suppliers: 'مستحقات الموردين', lowStockOut: 'المنتجات النافذة', lowStockLow: 'المنتجات المنخفضة',
+    };
+
+    Promise.allSettled([
       cashboxApi.getCashboxSummary(),
       reportsApi.getSalesReport({ from: today, to: today }),
       reportsApi.getPurchasesReport({ from: today, to: today }),
@@ -59,23 +74,37 @@ export function DashboardPage() {
       // The original widget shows every product with quantity <= minQuantity
       // in ONE list (out-of-stock and low-stock together, distinguished only
       // by the badge in each row) — there's no single backend filter for
-      // that combined condition, so two small calls are merged here instead
-      // of adding a new filter value to the backend just for this widget.
+      // that combined condition, so two small calls are merged into it
+      // instead of adding a new filter value to the backend just for this
+      // widget.
       productsApi.listProducts({ filter: 'out', limit: 10 }),
       productsApi.listProducts({ filter: 'low', limit: 10 }),
     ])
-      .then(([cashboxRes, salesRes, purchasesRes, expensesRes, custRes, suppRes, outRes, lowRes]) => {
+      .then(([cashboxR, salesR, purchasesR, expensesR, custR, suppR, outR, lowR]) => {
         if (cancelled) return;
-        setBalance(cashboxRes.data.balance);
-        setTodaySalesTotal(salesRes.data.revenue);
-        setTodayPurchasesTotal(purchasesRes.data.total);
-        setTodayExpensesTotal(expensesRes.data.todayTotal);
-        setCustDebt(custRes.data.totalOutstanding);
-        setSuppDebt(suppRes.data.totalOutstanding);
-        setLowStock([...outRes.data, ...lowRes.data]);
-      })
-      .catch((err) => {
-        if (!cancelled) toast.error(err.message || 'تعذر تحميل بيانات لوحة التحكم');
+
+        if (cashboxR.status === 'fulfilled') setBalance(cashboxR.value.data.balance);
+        if (salesR.status === 'fulfilled') setTodaySalesTotal(salesR.value.data.revenue);
+        if (purchasesR.status === 'fulfilled') setTodayPurchasesTotal(purchasesR.value.data.total);
+        if (expensesR.status === 'fulfilled') setTodayExpensesTotal(expensesR.value.data.todayTotal);
+        if (custR.status === 'fulfilled') setCustDebt(custR.value.data.totalOutstanding);
+        if (suppR.status === 'fulfilled') setSuppDebt(suppR.value.data.totalOutstanding);
+        if (outR.status === 'fulfilled' && lowR.status === 'fulfilled') {
+          setLowStock([...outR.value.data, ...lowR.value.data]);
+        } else if (outR.status === 'fulfilled') {
+          setLowStock(outR.value.data);
+        } else if (lowR.status === 'fulfilled') {
+          setLowStock(lowR.value.data);
+        }
+
+        const results = [
+          ['cashbox', cashboxR], ['sales', salesR], ['purchases', purchasesR], ['expenses', expensesR],
+          ['customers', custR], ['suppliers', suppR], ['lowStockOut', outR], ['lowStockLow', lowR],
+        ];
+        const failed = results.filter(([, r]) => r.status === 'rejected').map(([key]) => labels[key]);
+        if (failed.length) {
+          toast.error(`تعذر تحميل: ${failed.join('، ')} — باقي بيانات لوحة التحكم ظاهرة عادي`);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingStats(false);

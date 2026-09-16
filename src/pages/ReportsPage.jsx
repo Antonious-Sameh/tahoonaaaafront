@@ -270,6 +270,11 @@ export function ReportsPage() {
             <Stat title="قيمة المخزون (شراء)" value={fmtMoney(inventoryReport.costValue)} icon={Wallet} tone="bg-slate-100 text-slate-700" />
             <Stat title="قيمة المخزون (بيع)" value={fmtMoney(inventoryReport.saleValue)} icon={BarChart3} tone="bg-emerald-100 text-emerald-700" />
           </div>
+          {inventoryReport.hiddenCount > 0 && (
+            <p className="text-xs text-muted-foreground">
+              + {fmtNum(inventoryReport.hiddenCount)} منتج مخفي (له فواتير سابقة) بقيمة {fmtMoney(inventoryReport.hiddenValue)} — غير محسوبين في أي رقم من اللي فوق.
+            </p>
+          )}
           <div className="rounded-xl border bg-card p-4 overflow-x-auto">
             <h3 className="mb-3 font-bold">تفاصيل المنتجات</h3>
             {!inventoryReport.items || inventoryReport.items.length === 0 ? <Empty text="لا توجد منتجات" /> : (
