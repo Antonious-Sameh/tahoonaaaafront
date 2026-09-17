@@ -6,6 +6,51 @@ import { ProductImage } from './ProductImage';
 import { btnOutline } from './styles';
 
 const MAX_SIZE_MB = 3;
+// Cap the longer side at this many pixels before upload — plenty for how
+// product photos are actually shown in this app (small thumbnails in
+// tables/cards, one modest preview in the picker itself), while cutting a
+// typical phone-camera photo (often 3000px+ on the long side) down
+// dramatically before it ever leaves the device.
+const MAX_DIMENSION = 1400;
+const JPEG_QUALITY = 0.82;
+
+/**
+ * Resizes + re-encodes an image file as JPEG via a canvas, entirely in the
+ * browser, before it's uploaded — a typical phone-camera photo (several MB,
+ * far larger than this app ever displays it) otherwise had to travel over
+ * the network at its full original size, which is what made uploading on a
+ * slow connection feel so much slower than it needed to be. Falls back to
+ * the ORIGINAL file (never blocks the upload) if anything about this fails
+ * — an unusual format the browser can't decode, for instance — so a
+ * compression hiccup never becomes "I can't upload a photo at all".
+ */
+async function compressImage(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const width = Math.round(bitmap.width * scale);
+    const height = Math.round(bitmap.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY));
+    if (!blob) return file; // canvas encoding unsupported/failed — fall back to the original
+
+    // Only worth using if it's actually smaller — a tiny source image or an
+    // already-compressed JPEG can occasionally come out larger after
+    // re-encoding, in which case the original is the better upload.
+    if (blob.size >= file.size) return file;
+
+    return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' });
+  } catch {
+    return file; // any decoding error — fall back to the original file
+  }
+}
 
 /**
  * Uploads a product image directly from the browser to Cloudinary — the
@@ -41,15 +86,20 @@ async function uploadToCloudinary(file) {
 export function ProductImagePicker({ value, onChange, label = 'صورة المنتج' }) {
   const inputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
+  const [compressing, setCompressing] = useState(false);
 
   const processFile = async (file) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) { toast.error('من فضلك اختر ملف صورة صالح'); return; }
     if (file.size > MAX_SIZE_MB * 1024 * 1024) { toast.error(`حجم الصورة كبير جداً، الحد الأقصى ${MAX_SIZE_MB}MB`); return; }
 
+    setCompressing(true);
+    const toUpload = await compressImage(file);
+    setCompressing(false);
+
     setUploading(true);
     try {
-      const url = await uploadToCloudinary(file);
+      const url = await uploadToCloudinary(toUpload);
       onChange(url);
     } catch (err) {
       toast.error(err.message || 'تعذر رفع الصورة، حاول مرة أخرى');
@@ -76,14 +126,14 @@ export function ProductImagePicker({ value, onChange, label = 'صورة المن
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={uploading}
+              disabled={uploading || compressing}
               className={`${btnOutline} !h-8.5 !px-3 !text-xs`}
               onClick={() => inputRef.current?.click()}
             >
-              {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-              {uploading ? 'جارِ الرفع...' : value ? 'تغيير الصورة' : 'رفع صورة'}
+              {(uploading || compressing) ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              {compressing ? 'جارِ التجهيز...' : uploading ? 'جارِ الرفع...' : value ? 'تغيير الصورة' : 'رفع صورة'}
             </button>
-            {value && !uploading && (
+            {value && !uploading && !compressing && (
               <button
                 type="button"
                 className={`${btnOutline} !h-8.5 !px-3 !text-xs border-red-200 text-red-600 hover:bg-red-50`}
@@ -94,7 +144,7 @@ export function ProductImagePicker({ value, onChange, label = 'صورة المن
             )}
           </div>
         </div>
-        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={uploading} />
+        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={uploading || compressing} />
       </div>
     </div>
   );
