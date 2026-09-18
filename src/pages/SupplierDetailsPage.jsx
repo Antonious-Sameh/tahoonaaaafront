@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { toast } from 'sonner';
-import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight, Trash2 } from 'lucide-react';
+import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight, Trash2, Pencil } from 'lucide-react';
 import { fmtMoney, fmtDate, fmtDateTime } from '@/lib/formatters';
 import { Empty } from '@/components/shop/Empty';
 import { Badge } from '@/components/shop/Badge';
@@ -83,6 +83,12 @@ export function SupplierDetailsPage() {
   const [deletingPayment, setDeletingPayment] = useState(false);
   const [deleteReceiptTarget, setDeleteReceiptTarget] = useState(null);
   const [deletingReceipt, setDeletingReceipt] = useState(false);
+  const [showObModal, setShowObModal] = useState(false);
+  const [obStep, setObStep] = useState('form'); // 'form' -> 'confirm'
+  const [obAmountText, setObAmountText] = useState('');
+  const [obDirection, setObDirection] = useState('we_owe_them');
+  const [obReason, setObReason] = useState('');
+  const [submittingOb, setSubmittingOb] = useState(false);
 
   // Returns flow: 'pick-invoice' -> 'pick-items' -> 'confirm'
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -233,6 +239,37 @@ export function SupplierDetailsPage() {
     }
   };
 
+  const openObModal = () => {
+    setObStep('form');
+    setObAmountText(t.openingBalance?.amount ? String(t.openingBalance.amount) : '');
+    setObDirection(t.openingBalance?.direction || 'we_owe_them');
+    setObReason('');
+    setShowObModal(true);
+  };
+  const closeObModal = () => {
+    if (submittingOb) return;
+    setShowObModal(false);
+  };
+
+  const submitOpeningBalance = async () => {
+    setSubmittingOb(true);
+    try {
+      await suppliersApi.setSupplierOpeningBalance(id, {
+        amount: Number(obAmountText) || 0,
+        direction: obDirection,
+        reason: obReason,
+      });
+      toast.success('تم تصحيح الرصيد الافتتاحي بنجاح');
+      setShowObModal(false);
+      await load(); // refresh totals from the server
+    } catch (err) {
+      toast.error(err.message || 'تعذر تصحيح الرصيد الافتتاحي');
+      setObStep('form');
+    } finally {
+      setSubmittingOb(false);
+    }
+  };
+
   // ---- Returns flow ----
 
   const openReturnModal = () => {
@@ -344,10 +381,25 @@ export function SupplierDetailsPage() {
             <button onClick={startPrint} className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted">
               <Printer size={15} /> طباعة كشف حساب
             </button>
+            <button
+              onClick={openObModal}
+              title="تصحيح الرصيد الافتتاحي — لو حصل غلط في الرقم المنقول من الدفاتر القديمة"
+              className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Pencil size={14} /> تصحيح الرصيد الافتتاحي
+            </button>
           </div>
         </div>
 
-        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'}`}>
+        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
+          {t.openingBalance?.amount > 0 && (
+            <div className="rounded-lg bg-blue-50 p-3" title="رصيد منقول من الدفاتر قبل استخدام النظام">
+              <div className="text-xs text-muted-foreground">
+                رصيد افتتاحي ({t.openingBalance.direction === 'we_owe_them' ? 'له' : 'عليه'})
+              </div>
+              <div className="mt-1 text-lg font-bold text-blue-700">{fmtMoney(t.openingBalance.amount)}</div>
+            </div>
+          )}
           <div className="rounded-lg bg-muted/40 p-3">
             <div className="text-xs text-muted-foreground">إجمالي المشتريات منه</div>
             <div className="mt-1 text-lg font-bold text-foreground">{fmtMoney(t.total)}</div>
@@ -652,6 +704,93 @@ export function SupplierDetailsPage() {
         )}
       </Modal>
 
+      {/* Opening balance correction — deliberately separate from the normal
+          edit form, requires a reason, and has its own confirmation step
+          (see personService.js's setOpeningBalance docstring for why). */}
+      <Modal open={showObModal} onClose={closeObModal} title="تصحيح الرصيد الافتتاحي">
+        {obStep === 'form' ? (
+          <div className="grid gap-4">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              الرصيد الافتتاحي بس (رصيد منقول من الدفاتر قبل استخدام النظام) — مش عملية شراء ومش هيأثر على الصندوق ولا التقارير المالية خالص، بس هيغيّر "المتبقي/المستحق" لهذا المورد.
+            </div>
+
+            <Field label="المبلغ">
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                className={`${inp} font-mono`}
+                value={obAmountText}
+                onChange={(e) => setObAmountText(e.target.value.replace(/[^0-9.]/g, ''))}
+                placeholder="0"
+              />
+            </Field>
+
+            <div className="grid gap-1.5">
+              <button
+                type="button"
+                onClick={() => setObDirection('they_owe_us')}
+                className={`rounded-lg border px-3 py-2 text-start text-sm transition-colors ${obDirection === 'they_owe_us' ? 'border-primary bg-primary/5 font-semibold text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}
+              >
+                المورد عليه فلوس للمحل
+              </button>
+              <button
+                type="button"
+                onClick={() => setObDirection('we_owe_them')}
+                className={`rounded-lg border px-3 py-2 text-start text-sm transition-colors ${obDirection === 'we_owe_them' ? 'border-primary bg-primary/5 font-semibold text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}
+              >
+                المحل عليه فلوس للمورد
+              </button>
+            </div>
+
+            <Field label="سبب التصحيح (إجباري)">
+              <input
+                type="text"
+                autoComplete="off"
+                className={inp}
+                value={obReason}
+                onChange={(e) => setObReason(e.target.value)}
+                placeholder="مثلاً: الرقم اتكتب غلط وقت النقل من الدفاتر"
+              />
+            </Field>
+
+            <div className="flex justify-end gap-2">
+              <button className={btnOutline} onClick={closeObModal}>إلغاء</button>
+              <button
+                className={btn}
+                disabled={!obReason.trim() || Number(obAmountText) < 0 || obAmountText === ''}
+                onClick={() => setObStep('confirm')}
+              >
+                متابعة
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-50">
+                <Pencil size={16} className="text-amber-600" />
+              </div>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                هل أنت متأكد من تصحيح الرصيد الافتتاحي لـ<b className="text-foreground">{supplier.name}</b> إلى{' '}
+                <b className="font-mono text-foreground">{fmtMoney(Number(obAmountText) || 0)}</b>{' '}
+                ({obDirection === 'we_owe_them' ? 'المحل عليه للمورد' : 'المورد عليه للمحل'})؟
+                <br />
+                السبب: <span className="text-foreground">{obReason}</span>
+                <br />
+                هيتسجل التعديل ده في سجل المراجعة بالتفصيل.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className={btnOutline} onClick={() => setObStep('form')} disabled={submittingOb}>رجوع</button>
+              <button className={btn} onClick={submitOpeningBalance} disabled={submittingOb}>
+                {submittingOb && <Loader2 size={14} className="animate-spin" />} تأكيد التصحيح
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {/* Return flow modal: pick purchase invoice -> pick quantities per product -> confirm */}
       <Modal open={showReturnModal} onClose={closeReturnModal} title="تسجيل مرتجع" wide={returnStep !== 'pick-invoice'}>
         {returnStep === 'pick-invoice' && (
@@ -805,6 +944,11 @@ export function SupplierDetailsPage() {
           <div className="p-8" dir="rtl">
             <h1 className="mb-1 text-xl font-bold">كشف حساب — {supplier.name}</h1>
             <p className="mb-4 text-sm text-muted-foreground">{supplier.phone}</p>
+            {t.openingBalance?.amount > 0 && (
+              <p className="mb-4 text-sm font-semibold">
+                رصيد افتتاحي: {fmtMoney(t.openingBalance.amount)} ({t.openingBalance.direction === 'we_owe_them' ? 'له عند المحل' : 'عليه للمحل'})
+              </p>
+            )}
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-black/20">

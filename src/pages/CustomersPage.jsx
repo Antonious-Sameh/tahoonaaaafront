@@ -45,14 +45,15 @@ export function CustomersPage() {
         await customersApi.updateCustomer(editing._id, payload);
         toast.success('تم تحديث بيانات العميل بنجاح');
       } else {
+        const createPayload = formData.openingBalance ? { ...payload, openingBalance: formData.openingBalance } : payload;
         try {
-          await customersApi.createCustomer(payload);
+          await customersApi.createCustomer(createPayload);
         } catch (err) {
           if (err.details?.code === 'POSSIBLE_DUPLICATE') {
             const names = err.details.matches.map((m) => `${m.name}${m.phone ? ` (${m.phone})` : ''}`).join('، ');
             const proceed = window.confirm(`فيه عميل موجود بالفعل بنفس الاسم أو رقم الهاتف: ${names}. متأكد عايز تضيف عميل جديد منفصل؟`);
             if (!proceed) { setSaving(false); return; }
-            await customersApi.createCustomer({ ...payload, allowDuplicate: true });
+            await customersApi.createCustomer({ ...createPayload, allowDuplicate: true });
           } else {
             throw err;
           }
@@ -155,6 +156,7 @@ export function CustomersPage() {
         <PersonForm
           title={editing ? 'تعديل عميل' : 'إضافة عميل جديد'}
           initial={editing}
+          personType="customer"
           onClose={() => { if (!saving) { setFormOpen(false); setParams({}); } }}
           onSubmit={handleSubmit}
         />

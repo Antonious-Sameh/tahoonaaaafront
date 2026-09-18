@@ -5,3 +5,4 @@ export const getSupplier = (id) => apiGet(`/suppliers/${id}`);
 export const createSupplier = (data) => apiPost('/suppliers', data);
 export const updateSupplier = (id, data) => apiPatch(`/suppliers/${id}`, data);
 export const deleteSupplier = (id) => apiDelete(`/suppliers/${id}`);
+export const setSupplierOpeningBalance = (id, data) => apiPatch(`/suppliers/${id}/opening-balance`, data);

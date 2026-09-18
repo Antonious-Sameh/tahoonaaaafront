@@ -58,14 +58,15 @@ export function SuppliersPage() {
         await suppliersApi.updateSupplier(editing._id, payload);
         toast.success('تم تحديث بيانات المورد بنجاح');
       } else {
+        const createPayload = formData.openingBalance ? { ...payload, openingBalance: formData.openingBalance } : payload;
         try {
-          await suppliersApi.createSupplier(payload);
+          await suppliersApi.createSupplier(createPayload);
         } catch (err) {
           if (err.details?.code === 'POSSIBLE_DUPLICATE') {
             const names = err.details.matches.map((m) => `${m.name}${m.phone ? ` (${m.phone})` : ''}`).join('، ');
             const proceed = window.confirm(`فيه مورد موجود بالفعل بنفس الاسم أو رقم الهاتف: ${names}. متأكد عايز تضيف مورد جديد منفصل؟`);
             if (!proceed) { setSaving(false); return; }
-            await suppliersApi.createSupplier({ ...payload, allowDuplicate: true });
+            await suppliersApi.createSupplier({ ...createPayload, allowDuplicate: true });
           } else {
             throw err;
           }
@@ -177,6 +178,7 @@ export function SuppliersPage() {
         <PersonForm
           title={editing ? 'تعديل مورد' : 'إضافة مورد جديد'}
           initial={editing}
+          personType="supplier"
           onClose={() => { if (!saving) { setFormOpen(false); setParams({}); } }}
           onSubmit={handleSubmit}
         />
