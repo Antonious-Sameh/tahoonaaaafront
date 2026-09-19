@@ -15,7 +15,7 @@ import { QuickAddProductModal } from '@/components/shop/QuickAddProductModal';
 import { SearchSelect } from '@/components/shop/SearchSelect';
 import { usePrint } from '@/hooks/usePrint';
 import { useDebounce } from '@/hooks/useDebounce';
-import { useApiList } from '@/hooks/useApiList';
+import { useInfiniteList, useInfiniteScrollTrigger } from '@/hooks/useInfiniteList';
 import * as productsApi from '@/services/api/products';
 import * as customersApi from '@/services/api/customers';
 import * as salesApi from '@/services/api/sales';
@@ -73,10 +73,28 @@ export function PosPage() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const debouncedSearch = useDebounce(search);
 
-  const { items: products, loading: productsLoading, error: productsError, reload: reloadProducts } = useApiList(
-    productsApi.listProducts,
-    { search: debouncedSearch, limit: PRODUCT_PICKER_LIMIT },
-  );
+  // useInfiniteList has no `reload()` of its own (a fresh search already
+  // resets it) — this page needs to force a refetch after stock changes
+  // even when the search text hasn't changed (a completed sale, a product
+  // created on the fly), so a tiny extra param that only changes on
+  // request re-triggers the same reset-and-refetch effect. Harmless to send
+  // to the API — an unrecognized query param is silently ignored by the
+  // backend's validation, same as any other unknown key.
+  const [productsRefreshToken, setProductsRefreshToken] = useState(0);
+  const reloadProducts = () => setProductsRefreshToken((t) => t + 1);
+
+  // Loads products page by page as the grid is scrolled (see
+  // useInfiniteList) instead of one fixed batch — a shop with more
+  // products than that batch could hold previously had products that were
+  // simply unreachable by scrolling, findable only by typing a search that
+  // matched them exactly.
+  const {
+    items: products, loading: productsLoading, loadingMore: productsLoadingMore,
+    hasMore: productsHasMore, error: productsError, loadMore: loadMoreProducts,
+  } = useInfiniteList(productsApi.listProducts, { search: debouncedSearch, _refresh: productsRefreshToken }, PRODUCT_PICKER_LIMIT);
+  const productsSentinelRef = useInfiniteScrollTrigger(loadMoreProducts, {
+    hasMore: productsHasMore, loading: productsLoading, loadingMore: productsLoadingMore,
+  });
 
   useEffect(() => {
     if (productsError) toast.error(productsError.message || 'تعذر تحميل المنتجات');
@@ -439,8 +457,17 @@ export function PosPage() {
             onAction={() => setShowAddProduct(true)}
           />
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-            {products.map((p) => (
+          // A fixed max-height + its own scrollbar (not the whole page)
+          // keeps the cart panel beside it always reachable without
+          // scrolling the page itself — the sentinel div at the end
+          // triggers loading the next page as it's scrolled into view
+          // (see useInfiniteScrollTrigger), so scrolling through the full
+          // catalog feels the same as scrolling a page that was all
+          // loaded at once, without ever fetching more than a few pages'
+          // worth of products into memory at a time.
+          <div className="max-h-[calc(100vh-260px)] overflow-y-auto pe-1">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+              {products.map((p) => (
               <button
                 key={p._id}
                 onClick={() => addToCart(p)}
@@ -460,7 +487,13 @@ export function PosPage() {
                 <div className="mt-0.5 text-xs text-muted-foreground">{p.code}</div>
                 <div className="mt-2 text-sm font-bold text-primary">{fmtMoney(p.salePrice)}</div>
               </button>
-            ))}
+              ))}
+            </div>
+            {productsHasMore && (
+              <div ref={productsSentinelRef} className="flex justify-center py-4">
+                {productsLoadingMore && <Loader2 size={18} className="animate-spin text-muted-foreground" />}
+              </div>
+            )}
           </div>
         )}
       </div>
