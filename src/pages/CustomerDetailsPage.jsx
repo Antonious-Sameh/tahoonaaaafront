@@ -72,6 +72,7 @@ export function CustomerDetailsPage() {
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentAmountText, setPaymentAmountText] = useState('');
+  const [paymentDiscountText, setPaymentDiscountText] = useState('');
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [paymentIdemKey, setPaymentIdemKey] = useState('');
@@ -141,9 +142,15 @@ export function CustomerDetailsPage() {
   const t = customer.totals || { total: 0, paid: 0, remaining: 0, count: 0, lastPurchase: null, returned: 0 };
 
   const paymentAmount = decimalTextToNumber(paymentAmountText);
-  const paymentExceedsRemaining = paymentAmount > t.remaining;
-  const paymentValid = paymentAmount > 0 && !paymentExceedsRemaining;
-  const newBalancePreview = Math.max(0, t.remaining - Math.min(paymentAmount, t.remaining));
+  // Settlement/write-off recorded alongside the payment — see
+  // customerPayment.service.js's createCustomerPayment docstring. Reduces
+  // the balance exactly like the payment itself, but is never counted as
+  // cash collected (never reaches the cashbox).
+  const paymentDiscount = decimalTextToNumber(paymentDiscountText);
+  const paymentSettledTotal = paymentAmount + paymentDiscount;
+  const paymentExceedsRemaining = paymentSettledTotal > t.remaining;
+  const paymentValid = paymentAmount > 0 && paymentDiscount >= 0 && !paymentExceedsRemaining;
+  const newBalancePreview = Math.max(0, t.remaining - Math.min(paymentSettledTotal, t.remaining));
 
   const payoutAmount = decimalTextToNumber(payoutAmountText);
   const payoutExceedsCreditOwed = payoutAmount > (t.creditOwed || 0);
@@ -152,6 +159,7 @@ export function CustomerDetailsPage() {
 
   const openPaymentModal = () => {
     setPaymentAmountText('');
+    setPaymentDiscountText('');
     setConfirmingPayment(false);
     setPaymentIdemKey(newIdempotencyKey());
     setShowPaymentModal(true);
@@ -161,6 +169,7 @@ export function CustomerDetailsPage() {
     setShowPaymentModal(false);
     setConfirmingPayment(false);
     setPaymentAmountText('');
+    setPaymentDiscountText('');
   };
 
   const openPayoutModal = () => {
@@ -179,11 +188,14 @@ export function CustomerDetailsPage() {
   const submitPayment = async () => {
     setSubmittingPayment(true);
     try {
-      await customerPaymentsApi.createCustomerPayment({ customerId: id, amount: paymentAmount, idempotencyKey: paymentIdemKey });
-      toast.success('تم تسجيل السداد بنجاح');
+      await customerPaymentsApi.createCustomerPayment({
+        customerId: id, amount: paymentAmount, discount: paymentDiscount || undefined, idempotencyKey: paymentIdemKey,
+      });
+      toast.success(paymentDiscount > 0 ? 'تم تسجيل السداد والتسوية بنجاح' : 'تم تسجيل السداد بنجاح');
       setShowPaymentModal(false);
       setConfirmingPayment(false);
       setPaymentAmountText('');
+      setPaymentDiscountText('');
       await load(); // refresh totals + sales + payments from the server
     } catch (err) {
       toast.error(err.message || 'تعذر تسجيل السداد');
@@ -392,7 +404,7 @@ export function CustomerDetailsPage() {
           </div>
         </div>
 
-        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
+        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 || t.settlementsGiven > 0 ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
           {t.openingBalance?.amount > 0 && (
             <div className="rounded-lg bg-blue-50 p-3" title="رصيد منقول من الدفاتر قبل استخدام النظام">
               <div className="text-xs text-muted-foreground">
@@ -409,6 +421,12 @@ export function CustomerDetailsPage() {
             <div className="text-xs text-muted-foreground">المدفوع</div>
             <div className="mt-1 text-lg font-bold text-emerald-600">{fmtMoney(t.paid)}</div>
           </div>
+          {t.settlementsGiven > 0 && (
+            <div className="rounded-lg bg-amber-50 p-3" title="مبالغ تم إسقاطها من مديونية العميل باتفاق، لم تدخل الصندوق">
+              <div className="text-xs text-muted-foreground">خصومات/تسويات</div>
+              <div className="mt-1 text-lg font-bold text-amber-600">{fmtMoney(t.settlementsGiven)}</div>
+            </div>
+          )}
           {t.returned > 0 && (
             <div className="rounded-lg bg-muted/40 p-3">
               <div className="text-xs text-muted-foreground">إجمالي المرتجعات</div>
@@ -475,6 +493,7 @@ export function CustomerDetailsPage() {
             <tr className="border-b border-border bg-muted/30">
               <th className={thCls}>التاريخ والوقت</th>
               <th className={thCls}>المبلغ المسدد</th>
+              <th className={thCls}>خصم/تسوية</th>
               <th className={thCls}>الرصيد بعد السداد</th>
               <th className={thCls}></th>
             </tr>
@@ -484,6 +503,7 @@ export function CustomerDetailsPage() {
               <tr key={p._id} className="border-b border-border last:border-0 hover:bg-muted/30">
                 <td className={`${tdCls} text-muted-foreground`}>{fmtDateTime(p.date)}</td>
                 <td className={`${tdCls} font-mono font-semibold text-emerald-600`}>{fmtMoney(p.amount)}</td>
+                <td className={`${tdCls} font-mono ${p.discount > 0 ? 'text-amber-600 font-semibold' : 'text-muted-foreground'}`}>{p.discount > 0 ? fmtMoney(p.discount) : '—'}</td>
                 <td className={`${tdCls} font-mono`}>{fmtMoney(p.balanceAfter)}</td>
                 <td className={`${tdCls} text-end`}>
                   <button
@@ -598,14 +618,41 @@ export function CustomerDetailsPage() {
                 onChange={(e) => setPaymentAmountText(sanitizeDecimalText(e.target.value))}
                 placeholder="0"
               />
+            </Field>
+
+            <Field label="خصم / تسوية (اختياري)">
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                className={`${inp} font-mono`}
+                value={paymentDiscountText}
+                onChange={(e) => setPaymentDiscountText(sanitizeDecimalText(e.target.value))}
+                placeholder="0"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                مبلغ بيتم إسقاطه من مديونية العميل باتفاق بينكم، من غير ما يُحتسب كفلوس دخلت الصندوق.
+              </p>
               {paymentExceedsRemaining && (
-                <p className="mt-1 text-xs font-semibold text-destructive">مبلغ السداد أكبر من المتبقي على العميل</p>
+                <p className="mt-1 text-xs font-semibold text-destructive">مجموع المدفوع والخصم أكبر من المتبقي على العميل</p>
               )}
             </Field>
 
             <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">المتبقي الجديد بعد السداد</span>
+              {paymentDiscount > 0 && (
+                <>
+                  <div className="flex justify-between py-0.5">
+                    <span className="text-muted-foreground">المدفوع (يدخل الصندوق)</span>
+                    <b className="font-mono">{fmtMoney(paymentAmount)}</b>
+                  </div>
+                  <div className="flex justify-between py-0.5">
+                    <span className="text-muted-foreground">الخصم/التسوية (لا يدخل الصندوق)</span>
+                    <b className="font-mono text-amber-600">{fmtMoney(paymentDiscount)}</b>
+                  </div>
+                </>
+              )}
+              <div className="flex justify-between py-0.5">
+                <span className="text-muted-foreground">المتبقي الجديد بعد العملية</span>
                 <b className="font-mono text-primary">{fmtMoney(newBalancePreview)}</b>
               </div>
             </div>
@@ -625,7 +672,10 @@ export function CustomerDetailsPage() {
               </div>
               <p className="text-sm leading-relaxed text-muted-foreground">
                 هل تريد تسجيل سداد بقيمة <b className="font-mono text-foreground">{fmtMoney(paymentAmount)}</b> من
-                العميل <b className="text-foreground">{customer.name}</b>؟
+                العميل <b className="text-foreground">{customer.name}</b>
+                {paymentDiscount > 0 && (
+                  <> مع تسوية/خصم إضافي قدره <b className="font-mono text-foreground">{fmtMoney(paymentDiscount)}</b> (لن يُحتسب كفلوس دخلت الصندوق)</>
+                )}؟
                 <br />
                 سيصبح المتبقي عليه <b className="font-mono text-foreground">{fmtMoney(newBalancePreview)}</b>.
               </p>
@@ -980,6 +1030,7 @@ export function CustomerDetailsPage() {
                     <tr className="border-b border-black/20">
                       <th className="p-2 text-start">التاريخ والوقت</th>
                       <th className="p-2 text-start">المبلغ المسدد</th>
+                      <th className="p-2 text-start">خصم/تسوية</th>
                       <th className="p-2 text-start">الرصيد بعد السداد</th>
                     </tr>
                   </thead>
@@ -988,6 +1039,7 @@ export function CustomerDetailsPage() {
                       <tr key={p._id} className="border-b border-black/10">
                         <td className="p-2">{fmtDateTime(p.date)}</td>
                         <td className="p-2 font-mono">{fmtMoney(p.amount)}</td>
+                        <td className="p-2 font-mono">{p.discount > 0 ? fmtMoney(p.discount) : '—'}</td>
                         <td className="p-2 font-mono">{fmtMoney(p.balanceAfter)}</td>
                       </tr>
                     ))}
@@ -1047,6 +1099,7 @@ export function CustomerDetailsPage() {
             <div className="mt-4 flex justify-end gap-8 text-sm font-bold">
               <span>الإجمالي: {fmtMoney(t.total)}</span>
               <span>المدفوع: {fmtMoney(t.paid)}</span>
+              {t.settlementsGiven > 0 && <span>خصومات/تسويات: {fmtMoney(t.settlementsGiven)}</span>}
               <span>المتبقي: {fmtMoney(t.remaining)}</span>
               {t.creditOwed > 0 && <span>المستحق للعميل: {fmtMoney(t.creditOwed)}</span>}
             </div>

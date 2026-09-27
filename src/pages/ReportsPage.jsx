@@ -129,6 +129,7 @@ export function ReportsPage() {
     if (tab === 'customers' && customersReport) return [
       ['عدد العملاء', fmtNum(customersReport.count)],
       ['إجمالي الأرصدة المستحقة', fmtMoney(customersReport.totalOutstanding)],
+      ...(customersReport.totalSettlements > 0 ? [['إجمالي الخصومات/التسويات', fmtMoney(customersReport.totalSettlements)]] : []),
     ];
     if (tab === 'suppliers' && suppliersReport) return [
       ['عدد الموردين', fmtNum(suppliersReport.count)],
@@ -341,10 +342,13 @@ export function ReportsPage() {
       {tab === 'customers' && (
         loading && !customersReport ? <Loading /> : customersReport && (
         <div className="grid gap-4">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          <div className={`grid grid-cols-2 gap-3 ${customersReport.totalSettlements > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
             <Stat title="عدد العملاء" value={fmtNum(customersReport.count)} icon={Users} tone="bg-blue-100 text-blue-700" />
             <Stat title="إجمالي الأرصدة المستحقة" value={fmtMoney(customersReport.totalOutstanding)} icon={AlertTriangle} tone="bg-red-100 text-red-700" />
             <Stat title="عملاء عليهم أرصدة" value={fmtNum(customersReport.withBalanceCount)} icon={Users} tone="bg-amber-100 text-amber-700" />
+            {customersReport.totalSettlements > 0 && (
+              <Stat title="إجمالي الخصومات/التسويات" value={fmtMoney(customersReport.totalSettlements)} icon={Wallet} tone="bg-amber-100 text-amber-700" />
+            )}
           </div>
           <div className="rounded-xl border bg-card p-4">
             <h3 className="mb-3 font-bold">أعلى العملاء شراءً</h3>
