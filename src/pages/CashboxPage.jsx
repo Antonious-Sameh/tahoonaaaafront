@@ -209,6 +209,8 @@ export function CashboxPage() {
                       ? 'دفع مستحق لعميل'
                       : t.refType === 'supplier_credit_receipt'
                       ? 'استلام مستحق من مورد'
+                      : t.refType === 'customer_loan'
+                      ? 'سلفة لعميل'
                       : 'حركة يدوية'}
                   </span>
                 </td>

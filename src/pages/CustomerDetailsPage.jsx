@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { toast } from 'sonner';
-import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight, Trash2, Pencil, ArrowLeftRight } from 'lucide-react';
+import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight, Trash2, Pencil, ArrowLeftRight, HandCoins } from 'lucide-react';
 import { fmtMoney, fmtDate, fmtDateTime } from '@/lib/formatters';
 import { Empty } from '@/components/shop/Empty';
 import { Badge } from '@/components/shop/Badge';
@@ -17,6 +17,7 @@ import * as customersApi from '@/services/api/customers';
 import * as salesApi from '@/services/api/sales';
 import * as customerPaymentsApi from '@/services/api/customerPayments';
 import * as customerCreditPayoutsApi from '@/services/api/customerCreditPayouts';
+import * as customerLoansApi from '@/services/api/customerLoans';
 import * as customerDebtTransfersApi from '@/services/api/customerDebtTransfers';
 import * as salesReturnsApi from '@/services/api/salesReturns';
 import { inp, btn, btnOutline, thCls, tdCls } from '@/components/shop/styles';
@@ -85,6 +86,15 @@ export function CustomerDetailsPage() {
   const [confirmingPayout, setConfirmingPayout] = useState(false);
   const [submittingPayout, setSubmittingPayout] = useState(false);
   const [payoutIdemKey, setPayoutIdemKey] = useState('');
+  const [showLoanModal, setShowLoanModal] = useState(false);
+  const [loanAmountText, setLoanAmountText] = useState('');
+  const [loanNote, setLoanNote] = useState('');
+  const [confirmingLoan, setConfirmingLoan] = useState(false);
+  const [submittingLoan, setSubmittingLoan] = useState(false);
+  const [loanIdemKey, setLoanIdemKey] = useState('');
+  const [deleteLoanTarget, setDeleteLoanTarget] = useState(null);
+  const [deletingLoan, setDeletingLoan] = useState(false);
+  const [loans, setLoans] = useState([]);
   const [deletePaymentTarget, setDeletePaymentTarget] = useState(null);
   const [deletingPayment, setDeletingPayment] = useState(false);
   const [deletePayoutTarget, setDeletePayoutTarget] = useState(null);
@@ -148,13 +158,14 @@ export function CustomerDetailsPage() {
     setLoading(true);
     setNotFound(false);
     try {
-      const [customerRes, salesRes, paymentsRes, returnsRes, payoutsRes, transfersRes] = await Promise.all([
+      const [customerRes, salesRes, paymentsRes, returnsRes, payoutsRes, transfersRes, loansRes] = await Promise.all([
         customersApi.getCustomer(id),
         salesApi.listSales({ customerId: id, limit: HISTORY_LIMIT }),
         customerPaymentsApi.listCustomerPayments({ customerId: id, limit: HISTORY_LIMIT }),
         salesReturnsApi.listSalesReturns({ customerId: id, limit: HISTORY_LIMIT }),
         customerCreditPayoutsApi.listCustomerCreditPayouts({ customerId: id, limit: HISTORY_LIMIT }),
         customerDebtTransfersApi.listCustomerDebtTransfers({ customerId: id, limit: HISTORY_LIMIT }),
+        customerLoansApi.listCustomerLoans({ customerId: id, limit: HISTORY_LIMIT }),
       ]);
       setCustomer(customerRes.data);
       setSales(salesRes.data);
@@ -162,6 +173,7 @@ export function CustomerDetailsPage() {
       setReturns(returnsRes.data);
       setPayouts(payoutsRes.data);
       setTransfers(transfersRes.data);
+      setLoans(loansRes.data);
     } catch (err) {
       if (err.status === 404) setNotFound(true);
       else toast.error(err.message || 'تعذر تحميل بيانات العميل');
@@ -202,6 +214,17 @@ export function CustomerDetailsPage() {
   const payoutValid = payoutAmount > 0 && !payoutExceedsCreditOwed;
   const newCreditOwedPreview = Math.max(0, (t.creditOwed || 0) - Math.min(payoutAmount, t.creditOwed || 0));
 
+  // Loan preview — unconditional (see customerLoan.service.js): always adds
+  // to remaining, whatever the balance was before (debt, zero, or credit
+  // owed to the customer). `raw` reconstructs the signed balance from the
+  // two floored display figures (remaining >= 0, creditOwed >= 0, only one
+  // of them ever non-zero) the same way the backend keeps them internally.
+  const loanAmount = decimalTextToNumber(loanAmountText);
+  const loanValid = loanAmount > 0;
+  const loanRawAfter = (t.remaining - (t.creditOwed || 0)) + loanAmount;
+  const loanRemainingPreview = Math.max(0, loanRawAfter);
+  const loanCreditOwedPreview = Math.max(0, -loanRawAfter);
+
   // Debt transfer preview — a convenience for the person only; the server
   // re-checks every rule (see customerDebtTransfer.service.js).
   const transferAmount = decimalTextToNumber(transferAmountText);
@@ -238,6 +261,56 @@ export function CustomerDetailsPage() {
     setShowPayoutModal(false);
     setConfirmingPayout(false);
     setPayoutAmountText('');
+  };
+
+  const openLoanModal = () => {
+    setLoanAmountText('');
+    setLoanNote('');
+    setConfirmingLoan(false);
+    setLoanIdemKey(newIdempotencyKey());
+    setShowLoanModal(true);
+  };
+  const closeLoanModal = () => {
+    if (submittingLoan) return;
+    setShowLoanModal(false);
+    setConfirmingLoan(false);
+    setLoanAmountText('');
+    setLoanNote('');
+  };
+
+  const submitLoan = async () => {
+    setSubmittingLoan(true);
+    try {
+      await customerLoansApi.createCustomerLoan({
+        customerId: id, amount: loanAmount, note: loanNote, idempotencyKey: loanIdemKey,
+      });
+      toast.success('تم صرف السلفة للعميل، وتم خصمها من الصندوق');
+      setShowLoanModal(false);
+      setConfirmingLoan(false);
+      setLoanAmountText('');
+      setLoanNote('');
+      await load(); // refresh totals + loans from the server
+    } catch (err) {
+      toast.error(err.message || 'تعذر صرف السلفة');
+      setConfirmingLoan(false); // back to the input step so they can adjust and retry
+    } finally {
+      setSubmittingLoan(false);
+    }
+  };
+
+  const handleDeleteLoan = async () => {
+    if (!deleteLoanTarget) return;
+    setDeletingLoan(true);
+    try {
+      await customerLoansApi.deleteCustomerLoan(deleteLoanTarget._id);
+      toast.success('تم حذف السلفة، ورجع المبلغ لرصيد الصندوق');
+      setDeleteLoanTarget(null);
+      await load(); // refresh totals + loans from the server
+    } catch (err) {
+      toast.error(err.message || 'تعذر حذف السلفة');
+    } finally {
+      setDeletingLoan(false);
+    }
   };
 
   const submitPayment = async () => {
@@ -475,6 +548,13 @@ export function CustomerDetailsPage() {
               </button>
             )}
             <button
+              onClick={openLoanModal}
+              title="صرف سلفة للعميل من الصندوق — بغض النظر عن رصيده الحالي"
+              className={`${btnOutline} !h-9`}
+            >
+              <HandCoins size={15} /> سلفة للعميل
+            </button>
+            <button
               onClick={openReturnModal}
               disabled={sales.length === 0}
               title={sales.length === 0 ? 'لا توجد فواتير لهذا العميل' : ''}
@@ -503,7 +583,7 @@ export function CustomerDetailsPage() {
           </div>
         </div>
 
-        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 || t.settlementsGiven > 0 || t.transferredIn > 0 || t.transferredOut > 0 ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
+        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 || t.settlementsGiven > 0 || t.transferredIn > 0 || t.transferredOut > 0 || t.loansGiven > 0 ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
           {t.openingBalance?.amount > 0 && (
             <div className="rounded-lg bg-blue-50 p-3" title="رصيد منقول من الدفاتر قبل استخدام النظام">
               <div className="text-xs text-muted-foreground">
@@ -536,6 +616,12 @@ export function CustomerDetailsPage() {
             <div className="rounded-lg bg-violet-50 p-3" title="مديونية اتنقلت من هذا العميل لعميل آخر — مش سداد ومدخلتش الصندوق">
               <div className="text-xs text-muted-foreground">مديونية منقولة منه</div>
               <div className="mt-1 text-lg font-bold text-violet-700">{fmtMoney(t.transferredOut)}</div>
+            </div>
+          )}
+          {t.loansGiven > 0 && (
+            <div className="rounded-lg bg-orange-50 p-3" title="سلف صُرفت له فعليًا من الصندوق — بتزوّد المستحق عليه">
+              <div className="text-xs text-muted-foreground">سلف مصروفة له</div>
+              <div className="mt-1 text-lg font-bold text-orange-700">{fmtMoney(t.loansGiven)}</div>
             </div>
           )}
           {t.returned > 0 && (
@@ -669,6 +755,47 @@ export function CustomerDetailsPage() {
             </tbody>
           </table>
           {payouts.length === 0 && <Empty text="لا توجد عمليات دفع مستحق مسجلة لهذا العميل" />}
+        </div>
+      )}
+
+      {/* Loan history — cash handed to the customer as an unconditional
+          advance (see customerLoan.service.js). Distinct from the payout
+          table above: a loan is never tied to a creditOwed balance. */}
+      {loans.length > 0 && (
+        <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-4 py-3">
+            <h3 className="text-sm font-semibold text-foreground">سجل السلف</h3>
+          </div>
+          <table className="w-full text-start">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className={thCls}>التاريخ والوقت</th>
+                <th className={thCls}>مبلغ السلفة</th>
+                <th className={thCls}>المتبقي بعد السلفة</th>
+                <th className={thCls}>ملاحظة</th>
+                <th className={thCls}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loans.map((ln) => (
+                <tr key={ln._id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                  <td className={`${tdCls} text-muted-foreground`}>{fmtDateTime(ln.date)}</td>
+                  <td className={`${tdCls} font-mono font-semibold text-orange-600`}>{fmtMoney(ln.amount)}</td>
+                  <td className={`${tdCls} font-mono`}>{fmtMoney(ln.balanceAfter)}</td>
+                  <td className={`${tdCls} text-muted-foreground`}>{ln.note || '—'}</td>
+                  <td className={`${tdCls} text-end`}>
+                    <button
+                      onClick={() => setDeleteLoanTarget(ln)}
+                      className="rounded-lg p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
+                      title="حذف السلفة (تسجيل غلط)"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -992,6 +1119,91 @@ export function CustomerDetailsPage() {
               <button className={btnOutline} onClick={() => setObStep('form')} disabled={submittingOb}>رجوع</button>
               <button className={btn} onClick={submitOpeningBalance} disabled={submittingOb}>
                 {submittingOb && <Loader2 size={14} className="animate-spin" />} تأكيد التصحيح
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Customer loan — unconditional cash advance from the cashbox (see
+          customerLoan.service.js). Always increases remaining, regardless
+          of the customer's balance beforehand (debt, zero, or credit owed). */}
+      <Modal open={showLoanModal} onClose={closeLoanModal} title="سلفة للعميل">
+        {!confirmingLoan ? (
+          <div className="grid gap-4">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              السلفة دي بتتصرف فعليًا من الصندوق دلوقتي، وبتتضاف للمستحق على العميل — بغض النظر عن رصيده الحالي.
+            </div>
+
+            <div className="rounded-lg bg-muted/40 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">المتبقي على العميل حاليًا</span>
+                <b className="font-mono">{t.creditOwed > 0 ? `- ${fmtMoney(t.creditOwed)} (مستحق له)` : fmtMoney(t.remaining)}</b>
+              </div>
+            </div>
+
+            <Field label="مبلغ السلفة">
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                autoFocus
+                className={`${inp} font-mono`}
+                value={loanAmountText}
+                onChange={(e) => setLoanAmountText(sanitizeDecimalText(e.target.value))}
+                placeholder="0"
+              />
+            </Field>
+
+            <Field label="ملاحظة (اختياري)">
+              <input
+                type="text"
+                autoComplete="off"
+                className={inp}
+                value={loanNote}
+                onChange={(e) => setLoanNote(e.target.value)}
+                placeholder="مثلاً: سلفة شخصية"
+              />
+            </Field>
+
+            {loanAmount > 0 && (
+              <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">المتبقي الجديد بعد السلفة</span>
+                  <b className="font-mono text-primary">
+                    {loanCreditOwedPreview > 0 ? `- ${fmtMoney(loanCreditOwedPreview)} (مستحق له)` : fmtMoney(loanRemainingPreview)}
+                  </b>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button className={btnOutline} onClick={closeLoanModal}>إلغاء</button>
+              <button className={btn} disabled={!loanValid} onClick={() => setConfirmingLoan(true)}>
+                متابعة
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-50">
+                <HandCoins size={16} className="text-orange-600" />
+              </div>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                هل تريد صرف سلفة بقيمة <b className="font-mono text-foreground">{fmtMoney(loanAmount)}</b> للعميل{' '}
+                <b className="text-foreground">{customer.name}</b> من الصندوق؟
+                <br />
+                سيصبح المتبقي عليه{' '}
+                <b className="font-mono text-foreground">
+                  {loanCreditOwedPreview > 0 ? `- ${fmtMoney(loanCreditOwedPreview)} (مستحق له)` : fmtMoney(loanRemainingPreview)}
+                </b>.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className={btnOutline} onClick={() => setConfirmingLoan(false)} disabled={submittingLoan}>رجوع</button>
+              <button className={btn} onClick={submitLoan} disabled={submittingLoan}>
+                {submittingLoan && <Loader2 size={14} className="animate-spin" />} تأكيد صرف السلفة
               </button>
             </div>
           </div>
@@ -1372,6 +1584,30 @@ export function CustomerDetailsPage() {
               </>
             )}
 
+            {loans.length > 0 && (
+              <>
+                <h2 className="mb-2 mt-6 text-base font-bold">سجل السلف</h2>
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-black/20">
+                      <th className="p-2 text-start">التاريخ والوقت</th>
+                      <th className="p-2 text-start">مبلغ السلفة</th>
+                      <th className="p-2 text-start">المتبقي بعد السلفة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loans.map((ln) => (
+                      <tr key={ln._id} className="border-b border-black/10">
+                        <td className="p-2">{fmtDateTime(ln.date)}</td>
+                        <td className="p-2 font-mono">{fmtMoney(ln.amount)}</td>
+                        <td className="p-2 font-mono">{fmtMoney(ln.balanceAfter)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+
             {transfers.length > 0 && (
               <>
                 <h2 className="mb-2 mt-6 text-base font-bold">سجل نقل المديونية</h2>
@@ -1407,6 +1643,7 @@ export function CustomerDetailsPage() {
               {t.settlementsGiven > 0 && <span>خصومات/تسويات: {fmtMoney(t.settlementsGiven)}</span>}
               {t.transferredIn > 0 && <span>مديونية منقولة إليه: {fmtMoney(t.transferredIn)}</span>}
               {t.transferredOut > 0 && <span>مديونية منقولة منه: {fmtMoney(t.transferredOut)}</span>}
+              {t.loansGiven > 0 && <span>سلف مصروفة له: {fmtMoney(t.loansGiven)}</span>}
               <span>المتبقي: {fmtMoney(t.remaining)}</span>
               {t.creditOwed > 0 && <span>المستحق للعميل: {fmtMoney(t.creditOwed)}</span>}
             </div>
@@ -1428,6 +1665,13 @@ export function CustomerDetailsPage() {
         title="حذف عملية دفع مستحق"
         description={`هل أنت متأكد من حذف عملية دفع بقيمة ${fmtMoney(deletePayoutTarget?.amount || 0)}؟ سيرجع المبلغ لرصيد الصندوق، والمستحق للعميل سيرتفع بنفس القيمة.`}
         onConfirm={handleDeletePayout}
+      />
+      <Confirm
+        open={!!deleteLoanTarget}
+        onClose={() => { if (!deletingLoan) setDeleteLoanTarget(null); }}
+        title="حذف سلفة"
+        description={`هل أنت متأكد من حذف سلفة بقيمة ${fmtMoney(deleteLoanTarget?.amount || 0)}؟ سيرجع المبلغ لرصيد الصندوق. لو الحذف هيخلي رصيد العميل يدخل بالسالب، النظام هيرفض العملية.`}
+        onConfirm={handleDeleteLoan}
       />
     </div>
   );
