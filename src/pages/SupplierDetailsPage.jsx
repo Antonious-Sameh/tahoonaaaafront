@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { toast } from 'sonner';
-import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight, Trash2, Pencil } from 'lucide-react';
+import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight, Trash2, Pencil, ArrowLeftRight } from 'lucide-react';
 import { fmtMoney, fmtDate, fmtDateTime } from '@/lib/formatters';
 import { Empty } from '@/components/shop/Empty';
 import { Badge } from '@/components/shop/Badge';
@@ -16,6 +16,9 @@ import * as purchasesApi from '@/services/api/purchases';
 import * as supplierPaymentsApi from '@/services/api/supplierPayments';
 import * as supplierCreditReceiptsApi from '@/services/api/supplierCreditReceipts';
 import * as purchaseReturnsApi from '@/services/api/purchaseReturns';
+import * as accountBalanceTransfersApi from '@/services/api/accountBalanceTransfers';
+import { BalanceTransferModal } from '@/components/shop/BalanceTransferModal';
+import { BalanceTransferHistory, BalanceTransferPrintSection } from '@/components/shop/BalanceTransferHistory';
 import { inp, btn, btnOutline, thCls, tdCls } from '@/components/shop/styles';
 
 // See CustomerDetailsPage's note on the same limit: one call at the
@@ -64,6 +67,9 @@ export function SupplierDetailsPage() {
   const [purchases, setPurchases] = useState([]);
   const [payments, setPayments] = useState([]);
   const [receipts, setReceipts] = useState([]);
+  // Customer <-> Supplier offsets (مقاصة) — see BalanceTransferModal.jsx.
+  const [balanceTransfers, setBalanceTransfers] = useState([]);
+  const [showBalanceTransferModal, setShowBalanceTransferModal] = useState(false);
   const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -103,18 +109,21 @@ export function SupplierDetailsPage() {
     setLoading(true);
     setNotFound(false);
     try {
-      const [supplierRes, purchasesRes, paymentsRes, returnsRes, receiptsRes] = await Promise.all([
+      const [supplierRes, purchasesRes, paymentsRes, returnsRes, receiptsRes, balanceTransfersRes] = await Promise.all([
         suppliersApi.getSupplier(id),
         purchasesApi.listPurchases({ supplierId: id, limit: HISTORY_LIMIT }),
         supplierPaymentsApi.listSupplierPayments({ supplierId: id, limit: HISTORY_LIMIT }),
         purchaseReturnsApi.listPurchaseReturns({ supplierId: id, limit: HISTORY_LIMIT }),
         supplierCreditReceiptsApi.listSupplierCreditReceipts({ supplierId: id, limit: HISTORY_LIMIT }),
+        // Resilient on purpose: a failure of the new endpoint must never take the whole existing page down.
+        accountBalanceTransfersApi.listAccountBalanceTransfers({ accountType: 'supplier', accountId: id, limit: HISTORY_LIMIT }).catch(() => ({ data: [] })),
       ]);
       setSupplier(supplierRes.data);
       setPurchases(purchasesRes.data);
       setPayments(paymentsRes.data);
       setReturns(returnsRes.data);
       setReceipts(receiptsRes.data);
+      setBalanceTransfers(balanceTransfersRes.data);
     } catch (err) {
       if (err.status === 404) setNotFound(true);
       else toast.error(err.message || 'تعذر تحميل بيانات المورد');
@@ -382,6 +391,14 @@ export function SupplierDetailsPage() {
               <Printer size={15} /> طباعة كشف حساب
             </button>
             <button
+              onClick={() => setShowBalanceTransferModal(true)}
+              disabled={!(t.creditOwed > 0)}
+              title={t.creditOwed > 0 ? 'مقاصة مديونية المورد للمحل مع مبلغ مستحق لعميل (مش سداد ومش بيأثر على الصندوق)' : 'المورد ده مش مديون للمحل بأي مبلغ'}
+              className={`${btnOutline} !h-9`}
+            >
+              <ArrowLeftRight size={15} /> مقاصة مع عميل
+            </button>
+            <button
               onClick={openObModal}
               title="تصحيح الرصيد الافتتاحي — لو حصل غلط في الرقم المنقول من الدفاتر القديمة"
               className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -391,7 +408,7 @@ export function SupplierDetailsPage() {
           </div>
         </div>
 
-        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
+        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 || t.balanceTransferEffect ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
           {t.openingBalance?.amount > 0 && (
             <div className="rounded-lg bg-blue-50 p-3" title="رصيد منقول من الدفاتر قبل استخدام النظام">
               <div className="text-xs text-muted-foreground">
@@ -414,6 +431,12 @@ export function SupplierDetailsPage() {
               <div className="mt-1 text-lg font-bold text-amber-600">{fmtMoney(t.returned)}</div>
             </div>
           )}
+          {t.balanceTransferEffect ? (
+            <div className="rounded-lg bg-violet-50 p-3" title="أثر المقاصة مع العملاء على المتبقي — مش سداد ومش بيأثر على الصندوق">
+              <div className="text-xs text-muted-foreground">أثر المقاصة مع العملاء</div>
+              <div className="mt-1 text-lg font-bold text-violet-700">{t.balanceTransferEffect < 0 ? '−' : '+'} {fmtMoney(Math.abs(t.balanceTransferEffect))}</div>
+            </div>
+          ) : null}
           <div className="rounded-lg bg-muted/40 p-3">
             <div className="text-xs text-muted-foreground">المتبقي له</div>
             <div className="mt-1 text-lg font-bold text-destructive">{fmtMoney(t.remaining)}</div>
@@ -539,6 +562,9 @@ export function SupplierDetailsPage() {
           {receipts.length === 0 && <Empty text="لا توجد عمليات استلام مستحق مسجلة لهذا المورد" />}
         </div>
       )}
+
+      {/* Customer <-> Supplier offsets (مقاصة) this supplier took part in. */}
+      <BalanceTransferHistory transfers={balanceTransfers} accountType="supplier" />
 
       {/* Returns history — standalone from the purchases above: each row
           here sends stock back OUT to the supplier and reduces our running
@@ -939,6 +965,16 @@ export function SupplierDetailsPage() {
         )}
       </Modal>
 
+      <BalanceTransferModal
+        open={showBalanceTransferModal}
+        onClose={() => setShowBalanceTransferModal(false)}
+        sourceType="supplier"
+        sourceId={id}
+        sourceName={supplier.name}
+        sourceTotals={t}
+        onDone={load}
+      />
+
       {printing && (
         <PrintPortal>
           <div className="p-8" dir="rtl">
@@ -1044,9 +1080,12 @@ export function SupplierDetailsPage() {
               </>
             )}
 
+            <BalanceTransferPrintSection transfers={balanceTransfers} accountType="supplier" />
+
             <div className="mt-4 flex justify-end gap-8 text-sm font-bold">
               <span>الإجمالي: {fmtMoney(t.total)}</span>
               <span>المدفوع: {fmtMoney(t.paid)}</span>
+              {t.balanceTransferEffect ? <span>أثر المقاصة مع العملاء: {t.balanceTransferEffect < 0 ? '−' : '+'} {fmtMoney(Math.abs(t.balanceTransferEffect))}</span> : null}
               <span>المتبقي: {fmtMoney(t.remaining)}</span>
               {t.creditOwed > 0 && <span>المستحق من المورد: {fmtMoney(t.creditOwed)}</span>}
             </div>
