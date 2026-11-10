@@ -13,5 +13,3 @@ export { QuickAddProductModal } from './QuickAddProductModal';
 export { SearchSelect } from './SearchSelect';
 export { Pagination } from './Pagination';
 export { inp, btn, btnOutline, btnDanger, thCls, tdCls } from './styles';
-export { BalanceTransferModal } from './BalanceTransferModal';
-export { BalanceTransferHistory, BalanceTransferPrintSection } from './BalanceTransferHistory';

@@ -19,9 +19,6 @@ import * as customerPaymentsApi from '@/services/api/customerPayments';
 import * as customerCreditPayoutsApi from '@/services/api/customerCreditPayouts';
 import * as customerLoansApi from '@/services/api/customerLoans';
 import * as customerDebtTransfersApi from '@/services/api/customerDebtTransfers';
-import * as accountBalanceTransfersApi from '@/services/api/accountBalanceTransfers';
-import { BalanceTransferModal } from '@/components/shop/BalanceTransferModal';
-import { BalanceTransferHistory, BalanceTransferPrintSection } from '@/components/shop/BalanceTransferHistory';
 import * as salesReturnsApi from '@/services/api/salesReturns';
 import { inp, btn, btnOutline, thCls, tdCls } from '@/components/shop/styles';
 
@@ -74,9 +71,6 @@ export function CustomerDetailsPage() {
   const [payouts, setPayouts] = useState([]);
   const [returns, setReturns] = useState([]);
   const [transfers, setTransfers] = useState([]);
-  // Customer <-> Supplier offsets (مقاصة) — see BalanceTransferModal.jsx.
-  const [balanceTransfers, setBalanceTransfers] = useState([]);
-  const [showBalanceTransferModal, setShowBalanceTransferModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [printing, startPrint] = usePrint();
@@ -164,7 +158,7 @@ export function CustomerDetailsPage() {
     setLoading(true);
     setNotFound(false);
     try {
-      const [customerRes, salesRes, paymentsRes, returnsRes, payoutsRes, transfersRes, loansRes, balanceTransfersRes] = await Promise.all([
+      const [customerRes, salesRes, paymentsRes, returnsRes, payoutsRes, transfersRes, loansRes] = await Promise.all([
         customersApi.getCustomer(id),
         salesApi.listSales({ customerId: id, limit: HISTORY_LIMIT }),
         customerPaymentsApi.listCustomerPayments({ customerId: id, limit: HISTORY_LIMIT }),
@@ -172,8 +166,6 @@ export function CustomerDetailsPage() {
         customerCreditPayoutsApi.listCustomerCreditPayouts({ customerId: id, limit: HISTORY_LIMIT }),
         customerDebtTransfersApi.listCustomerDebtTransfers({ customerId: id, limit: HISTORY_LIMIT }),
         customerLoansApi.listCustomerLoans({ customerId: id, limit: HISTORY_LIMIT }),
-        // Resilient on purpose: a failure of the new endpoint must never take the whole existing page down.
-        accountBalanceTransfersApi.listAccountBalanceTransfers({ accountType: 'customer', accountId: id, limit: HISTORY_LIMIT }).catch(() => ({ data: [] })),
       ]);
       setCustomer(customerRes.data);
       setSales(salesRes.data);
@@ -182,7 +174,6 @@ export function CustomerDetailsPage() {
       setPayouts(payoutsRes.data);
       setTransfers(transfersRes.data);
       setLoans(loansRes.data);
-      setBalanceTransfers(balanceTransfersRes.data);
     } catch (err) {
       if (err.status === 404) setNotFound(true);
       else toast.error(err.message || 'تعذر تحميل بيانات العميل');
@@ -583,14 +574,6 @@ export function CustomerDetailsPage() {
               <ArrowLeftRight size={15} /> نقل مديونية
             </button>
             <button
-              onClick={() => setShowBalanceTransferModal(true)}
-              disabled={t.remaining <= 0}
-              title={t.remaining <= 0 ? 'لا توجد مديونية على هذا العميل لإجراء مقاصة' : 'مقاصة مديونية العميل مع مبلغ مستحق لمورد (مش سداد ومش بيأثر على الصندوق)'}
-              className={`${btnOutline} !h-9`}
-            >
-              <ArrowLeftRight size={15} /> مقاصة مع مورد
-            </button>
-            <button
               onClick={openObModal}
               title="تصحيح الرصيد الافتتاحي — لو حصل غلط في الرقم المنقول من الدفاتر القديمة"
               className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -600,7 +583,7 @@ export function CustomerDetailsPage() {
           </div>
         </div>
 
-        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 || t.settlementsGiven > 0 || t.transferredIn > 0 || t.transferredOut > 0 || t.loansGiven > 0 || t.balanceTransferEffect ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
+        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 || t.settlementsGiven > 0 || t.transferredIn > 0 || t.transferredOut > 0 || t.loansGiven > 0 ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
           {t.openingBalance?.amount > 0 && (
             <div className="rounded-lg bg-blue-50 p-3" title="رصيد منقول من الدفاتر قبل استخدام النظام">
               <div className="text-xs text-muted-foreground">
@@ -635,12 +618,6 @@ export function CustomerDetailsPage() {
               <div className="mt-1 text-lg font-bold text-violet-700">{fmtMoney(t.transferredOut)}</div>
             </div>
           )}
-          {t.balanceTransferEffect ? (
-            <div className="rounded-lg bg-violet-50 p-3" title="أثر المقاصة مع الموردين على المتبقي — مش سداد ومش بيأثر على الصندوق">
-              <div className="text-xs text-muted-foreground">أثر المقاصة مع الموردين</div>
-              <div className="mt-1 text-lg font-bold text-violet-700">{t.balanceTransferEffect < 0 ? '−' : '+'} {fmtMoney(Math.abs(t.balanceTransferEffect))}</div>
-            </div>
-          ) : null}
           {t.loansGiven > 0 && (
             <div className="rounded-lg bg-orange-50 p-3" title="سلف صُرفت له فعليًا من الصندوق — بتزوّد المستحق عليه">
               <div className="text-xs text-muted-foreground">سلف مصروفة له</div>
@@ -867,9 +844,6 @@ export function CustomerDetailsPage() {
           </p>
         </div>
       )}
-
-      {/* Customer <-> Supplier offsets (مقاصة) this customer took part in. */}
-      <BalanceTransferHistory transfers={balanceTransfers} accountType="customer" />
 
       {/* Returns history — standalone from the sales above: each row here
           restores stock and reduces the customer's running balance without
@@ -1235,16 +1209,6 @@ export function CustomerDetailsPage() {
           </div>
         )}
       </Modal>
-
-      <BalanceTransferModal
-        open={showBalanceTransferModal}
-        onClose={() => setShowBalanceTransferModal(false)}
-        sourceType="customer"
-        sourceId={id}
-        sourceName={customer.name}
-        sourceTotals={t}
-        onDone={load}
-      />
 
       {/* Debt transfer — moves part or all of this customer's debt to another
           customer. Not a payment: nothing enters or leaves the cashbox. The
@@ -1673,8 +1637,6 @@ export function CustomerDetailsPage() {
               </>
             )}
 
-            <BalanceTransferPrintSection transfers={balanceTransfers} accountType="customer" />
-
             <div className="mt-4 flex justify-end gap-8 text-sm font-bold">
               <span>الإجمالي: {fmtMoney(t.total)}</span>
               <span>المدفوع: {fmtMoney(t.paid)}</span>
@@ -1682,7 +1644,6 @@ export function CustomerDetailsPage() {
               {t.transferredIn > 0 && <span>مديونية منقولة إليه: {fmtMoney(t.transferredIn)}</span>}
               {t.transferredOut > 0 && <span>مديونية منقولة منه: {fmtMoney(t.transferredOut)}</span>}
               {t.loansGiven > 0 && <span>سلف مصروفة له: {fmtMoney(t.loansGiven)}</span>}
-              {t.balanceTransferEffect ? <span>أثر المقاصة مع الموردين: {t.balanceTransferEffect < 0 ? '−' : '+'} {fmtMoney(Math.abs(t.balanceTransferEffect))}</span> : null}
               <span>المتبقي: {fmtMoney(t.remaining)}</span>
               {t.creditOwed > 0 && <span>المستحق للعميل: {fmtMoney(t.creditOwed)}</span>}
             </div>
