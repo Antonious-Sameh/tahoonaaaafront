@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { toast } from 'sonner';
@@ -9,10 +9,9 @@ import { Badge } from '@/components/shop/Badge';
 import { Modal } from '@/components/shop/Modal';
 import { Confirm } from '@/components/shop/Confirm';
 import { Field } from '@/components/shop/Field';
-import { SearchSelect } from '@/components/shop/SearchSelect';
+import { DebtTransferModal } from '@/components/shop/DebtTransferModal';
 import { PrintPortal } from '@/components/shop/PrintPortal';
 import { usePrint } from '@/hooks/usePrint';
-import { useDebounce } from '@/hooks/useDebounce';
 import * as customersApi from '@/services/api/customers';
 import * as salesApi from '@/services/api/sales';
 import * as customerPaymentsApi from '@/services/api/customerPayments';
@@ -106,44 +105,9 @@ export function CustomerDetailsPage() {
   const [obReason, setObReason] = useState('');
   const [submittingOb, setSubmittingOb] = useState(false);
 
-  // Debt transfer to another customer: 'form' -> 'confirm'. The destination is
-  // searched on the server as the person types (same pattern as POS's
-  // customer picker) instead of loading one fixed batch of customers.
+  // Debt transfer (to another customer or to a supplier) — the dialog itself,
+  // its search and its submit live in the shared DebtTransferModal.
   const [showTransferModal, setShowTransferModal] = useState(false);
-  const [transferStep, setTransferStep] = useState('form');
-  const [transferAmountText, setTransferAmountText] = useState('');
-  const [transferNote, setTransferNote] = useState('');
-  const [transferToId, setTransferToId] = useState('');
-  const [transferTargets, setTransferTargets] = useState([]);
-  const [transferSearch, setTransferSearch] = useState('');
-  const [transferSearching, setTransferSearching] = useState(false);
-  const [transferIdemKey, setTransferIdemKey] = useState('');
-  const [submittingTransfer, setSubmittingTransfer] = useState(false);
-  const debouncedTransferSearch = useDebounce(transferSearch);
-  // Read inside the search effect without being a dependency of it — picking
-  // a destination alone must never trigger a new search (same reason as
-  // PosPage.jsx's customerIdRef).
-  const transferToIdRef = useRef(transferToId);
-  transferToIdRef.current = transferToId;
-
-  useEffect(() => {
-    if (!showTransferModal) return undefined;
-    let cancelled = false;
-    setTransferSearching(true);
-    customersApi.listCustomers({ search: debouncedTransferSearch, limit: 50 })
-      .then((res) => {
-        if (cancelled) return;
-        setTransferTargets((prev) => {
-          const selectedId = transferToIdRef.current;
-          if (!selectedId || res.data.some((c) => c._id === selectedId)) return res.data;
-          const keep = prev.find((c) => c._id === selectedId);
-          return keep ? [keep, ...res.data] : res.data;
-        });
-      })
-      .catch((err) => { if (!cancelled) toast.error(err.message || 'تعذر تحميل العملاء'); })
-      .finally(() => { if (!cancelled) setTransferSearching(false); });
-    return () => { cancelled = true; };
-  }, [showTransferModal, debouncedTransferSearch]);
 
   // Returns flow: 'pick-invoice' -> 'pick-items' -> 'confirm'
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -224,16 +188,6 @@ export function CustomerDetailsPage() {
   const loanRawAfter = (t.remaining - (t.creditOwed || 0)) + loanAmount;
   const loanRemainingPreview = Math.max(0, loanRawAfter);
   const loanCreditOwedPreview = Math.max(0, -loanRawAfter);
-
-  // Debt transfer preview — a convenience for the person only; the server
-  // re-checks every rule (see customerDebtTransfer.service.js).
-  const transferAmount = decimalTextToNumber(transferAmountText);
-  const transferTarget = transferTargets.find((c) => c._id === transferToId) || null;
-  const transferTargetRemaining = transferTarget?.totals?.remaining || 0;
-  const transferTargetCreditOwed = transferTarget?.totals?.creditOwed || 0;
-  const transferExceedsRemaining = transferAmount > t.remaining;
-  const transferValid = !!transferToId && transferAmount > 0 && !transferExceedsRemaining && transferTargetCreditOwed <= 0;
-  const transferSourceAfter = Math.max(0, t.remaining - Math.min(transferAmount, t.remaining));
 
   const openPaymentModal = () => {
     setPaymentAmountText('');
@@ -380,41 +334,7 @@ export function CustomerDetailsPage() {
     }
   };
 
-  const openTransferModal = () => {
-    setTransferStep('form');
-    setTransferAmountText('');
-    setTransferNote('');
-    setTransferToId('');
-    setTransferTargets([]);
-    setTransferSearch('');
-    setTransferIdemKey(newIdempotencyKey());
-    setShowTransferModal(true);
-  };
-  const closeTransferModal = () => {
-    if (submittingTransfer) return;
-    setShowTransferModal(false);
-  };
-
-  const submitTransfer = async () => {
-    setSubmittingTransfer(true);
-    try {
-      await customerDebtTransfersApi.createCustomerDebtTransfer({
-        fromCustomerId: id,
-        toCustomerId: transferToId,
-        amount: transferAmount,
-        note: transferNote,
-        idempotencyKey: transferIdemKey,
-      });
-      toast.success('تم نقل المديونية بنجاح');
-      setShowTransferModal(false);
-      await load(); // refresh totals + transfers from the server
-    } catch (err) {
-      toast.error(err.message || 'تعذر نقل المديونية');
-      setTransferStep('form'); // back to the input step so they can adjust and retry
-    } finally {
-      setSubmittingTransfer(false);
-    }
-  };
+  const openTransferModal = () => setShowTransferModal(true);
 
   const openObModal = () => {
     setObStep('form');
@@ -568,7 +488,7 @@ export function CustomerDetailsPage() {
             <button
               onClick={openTransferModal}
               disabled={t.remaining <= 0}
-              title={t.remaining <= 0 ? 'لا توجد مديونية على هذا العميل لنقلها' : 'نقل جزء من المديونية أو كلها إلى عميل آخر (مش سداد ومش بيأثر على الصندوق)'}
+              title={t.remaining <= 0 ? 'لا توجد مديونية على هذا العميل لنقلها' : 'نقل جزء من المديونية أو كلها إلى عميل آخر أو مورد (مش سداد ومش بيأثر على الصندوق)'}
               className={`${btnOutline} !h-9`}
             >
               <ArrowLeftRight size={15} /> نقل مديونية
@@ -607,13 +527,13 @@ export function CustomerDetailsPage() {
             </div>
           )}
           {t.transferredIn > 0 && (
-            <div className="rounded-lg bg-violet-50 p-3" title="مديونية اتنقلت لهذا العميل من عميل آخر — مش فاتورة ومش سداد">
+            <div className="rounded-lg bg-violet-50 p-3" title="مديونية اتنقلت لهذا العميل من عميل أو مورد آخر — مش فاتورة ومش سداد">
               <div className="text-xs text-muted-foreground">مديونية منقولة إليه</div>
               <div className="mt-1 text-lg font-bold text-violet-700">{fmtMoney(t.transferredIn)}</div>
             </div>
           )}
           {t.transferredOut > 0 && (
-            <div className="rounded-lg bg-violet-50 p-3" title="مديونية اتنقلت من هذا العميل لعميل آخر — مش سداد ومدخلتش الصندوق">
+            <div className="rounded-lg bg-violet-50 p-3" title="مديونية اتنقلت من هذا العميل لعميل أو مورد آخر — مش سداد ومدخلتش الصندوق">
               <div className="text-xs text-muted-foreground">مديونية منقولة منه</div>
               <div className="mt-1 text-lg font-bold text-violet-700">{fmtMoney(t.transferredOut)}</div>
             </div>
@@ -826,8 +746,8 @@ export function CustomerDetailsPage() {
                     <td className={`${tdCls} text-muted-foreground`}>{fmtDateTime(tr.date)}</td>
                     <td className={tdCls}>
                       {isOut
-                        ? <>منقولة إلى <b className="text-foreground">{tr.toName}</b></>
-                        : <>منقولة من <b className="text-foreground">{tr.fromName}</b></>}
+                        ? <>منقولة إلى <b className="text-foreground">{tr.toName}</b>{tr.toType === 'supplier' && <span className="text-muted-foreground"> (مورد)</span>}</>
+                        : <>منقولة من <b className="text-foreground">{tr.fromName}</b>{tr.fromType === 'supplier' && <span className="text-muted-foreground"> (مورد)</span>}</>}
                     </td>
                     <td className={`${tdCls} font-mono font-semibold ${isOut ? 'text-emerald-600' : 'text-violet-700'}`}>
                       {isOut ? '−' : '+'} {fmtMoney(tr.amount)}
@@ -1211,123 +1131,14 @@ export function CustomerDetailsPage() {
       </Modal>
 
       {/* Debt transfer — moves part or all of this customer's debt to another
-          customer. Not a payment: nothing enters or leaves the cashbox. The
-          server re-validates every rule; the checks here are only a preview. */}
-      <Modal open={showTransferModal} onClose={closeTransferModal} title="نقل مديونية إلى عميل آخر">
-        {transferStep === 'form' ? (
-          <div className="grid gap-4">
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              ده نقل مديونية بس — مش سداد ومش تحصيل ومش هيدخل أو يخرج أي فلوس من الصندوق، والفواتير القديمة مش هتتغير.
-            </div>
-
-            <div className="rounded-lg bg-muted/40 p-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">المتاح للنقل من {customer.name}</span>
-                <b className="font-mono text-destructive">{fmtMoney(t.remaining)}</b>
-              </div>
-            </div>
-
-            <Field label="العميل المستلم للمديونية">
-              <SearchSelect
-                value={transferToId}
-                onChange={setTransferToId}
-                options={transferTargets
-                  .filter((c) => c._id !== id)
-                  .map((c) => ({ id: c._id, label: c.name, sublabel: c.phone }))}
-                placeholder="اختر العميل..."
-                searchPlaceholder="ابحث بالاسم أو الهاتف..."
-                emptyText="لا يوجد عملاء مطابقون"
-                onQueryChange={setTransferSearch}
-                searching={transferSearching}
-                clearable={false}
-              />
-              {transferTargetCreditOwed > 0 && (
-                <p className="mt-1 text-xs font-semibold text-destructive">
-                  العميل ده له رصيد مستحق عند المحل ({fmtMoney(transferTargetCreditOwed)}) — مينفعش النقل إليه قبل تسوية رصيده.
-                </p>
-              )}
-            </Field>
-
-            <Field label="المبلغ المنقول">
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                className={`${inp} font-mono`}
-                value={transferAmountText}
-                onChange={(e) => setTransferAmountText(sanitizeDecimalText(e.target.value))}
-                placeholder="0"
-              />
-              {transferExceedsRemaining && (
-                <p className="mt-1 text-xs font-semibold text-destructive">المبلغ أكبر من المديونية المتاحة على العميل</p>
-              )}
-              {t.remaining > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setTransferAmountText(String(t.remaining))}
-                  className="mt-1 text-xs font-semibold text-primary hover:underline"
-                >
-                  نقل كل المديونية ({fmtMoney(t.remaining)})
-                </button>
-              )}
-            </Field>
-
-            <Field label="ملاحظة (اختياري)">
-              <input
-                type="text"
-                autoComplete="off"
-                className={inp}
-                value={transferNote}
-                onChange={(e) => setTransferNote(e.target.value)}
-                placeholder="مثلاً: اتفاق بين العميلين"
-              />
-            </Field>
-
-            {transferAmount > 0 && transferTarget && (
-              <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
-                <div className="flex justify-between py-0.5">
-                  <span className="text-muted-foreground">{customer.name} بعد النقل</span>
-                  <b className="font-mono text-primary">{fmtMoney(transferSourceAfter)}</b>
-                </div>
-                <div className="flex justify-between py-0.5">
-                  <span className="text-muted-foreground">{transferTarget.name} بعد النقل</span>
-                  <b className="font-mono text-primary">{fmtMoney(transferTargetRemaining + transferAmount)}</b>
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <button className={btnOutline} onClick={closeTransferModal}>إلغاء</button>
-              <button className={btn} disabled={!transferValid} onClick={() => setTransferStep('confirm')}>
-                متابعة
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-5">
-            <div className="flex items-start gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-50">
-                <ArrowLeftRight size={16} className="text-violet-600" />
-              </div>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                هل تريد نقل مديونية بقيمة <b className="font-mono text-foreground">{fmtMoney(transferAmount)}</b> من{' '}
-                <b className="text-foreground">{customer.name}</b> إلى <b className="text-foreground">{transferTarget?.name}</b>؟
-                <br />
-                سيصبح المتبقي على {customer.name} <b className="font-mono text-foreground">{fmtMoney(transferSourceAfter)}</b>،
-                وعلى {transferTarget?.name} <b className="font-mono text-foreground">{fmtMoney(transferTargetRemaining + transferAmount)}</b>.
-                <br />
-                العملية مش سداد ومش هتأثر على الصندوق، وهتتسجل بشكل دائم (مش بتتحذف — التصحيح بنقل عكسي).
-              </p>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button className={btnOutline} onClick={() => setTransferStep('form')} disabled={submittingTransfer}>رجوع</button>
-              <button className={btn} onClick={submitTransfer} disabled={submittingTransfer}>
-                {submittingTransfer && <Loader2 size={14} className="animate-spin" />} تأكيد النقل
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
+          customer or to a supplier. Not a payment: nothing enters or leaves
+          the cashbox. The server re-validates every rule. */}
+      <DebtTransferModal
+        open={showTransferModal}
+        onClose={() => setShowTransferModal(false)}
+        source={{ type: 'customer', id, name: customer.name, available: t.remaining }}
+        onDone={load}
+      />
 
       {/* Return flow modal: pick invoice -> pick quantities per product -> confirm */}
       <Modal open={showReturnModal} onClose={closeReturnModal} title="تسجيل مرتجع" wide={returnStep !== 'pick-invoice'}>
@@ -1626,7 +1437,7 @@ export function CustomerDetailsPage() {
                       return (
                         <tr key={tr._id} className="border-b border-black/10">
                           <td className="p-2">{fmtDateTime(tr.date)}</td>
-                          <td className="p-2">{isOut ? `منقولة إلى ${tr.toName}` : `منقولة من ${tr.fromName}`}</td>
+                          <td className="p-2">{isOut ? `منقولة إلى ${tr.toName}${tr.toType === 'supplier' ? ' (مورد)' : ''}` : `منقولة من ${tr.fromName}${tr.fromType === 'supplier' ? ' (مورد)' : ''}`}</td>
                           <td className="p-2 font-mono">{isOut ? '−' : '+'} {fmtMoney(tr.amount)}</td>
                           <td className="p-2 font-mono">{fmtMoney(isOut ? tr.fromBalanceAfter : tr.toBalanceAfter)}</td>
                         </tr>

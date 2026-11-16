@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { toast } from 'sonner';
-import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight, Trash2, Pencil } from 'lucide-react';
+import { ArrowRight, Phone, MapPin, Printer, Loader2, Wallet, CheckCircle2, Undo2, ChevronRight, Trash2, Pencil, ArrowLeftRight } from 'lucide-react';
 import { fmtMoney, fmtDate, fmtDateTime } from '@/lib/formatters';
 import { Empty } from '@/components/shop/Empty';
 import { Badge } from '@/components/shop/Badge';
@@ -10,12 +10,14 @@ import { Modal } from '@/components/shop/Modal';
 import { Confirm } from '@/components/shop/Confirm';
 import { Field } from '@/components/shop/Field';
 import { PrintPortal } from '@/components/shop/PrintPortal';
+import { DebtTransferModal, describeOwes } from '@/components/shop/DebtTransferModal';
 import { usePrint } from '@/hooks/usePrint';
 import * as suppliersApi from '@/services/api/suppliers';
 import * as purchasesApi from '@/services/api/purchases';
 import * as supplierPaymentsApi from '@/services/api/supplierPayments';
 import * as supplierCreditReceiptsApi from '@/services/api/supplierCreditReceipts';
 import * as purchaseReturnsApi from '@/services/api/purchaseReturns';
+import * as customerDebtTransfersApi from '@/services/api/customerDebtTransfers';
 import { inp, btn, btnOutline, thCls, tdCls } from '@/components/shop/styles';
 
 // See CustomerDetailsPage's note on the same limit: one call at the
@@ -65,6 +67,9 @@ export function SupplierDetailsPage() {
   const [payments, setPayments] = useState([]);
   const [receipts, setReceipts] = useState([]);
   const [returns, setReturns] = useState([]);
+  const [transfers, setTransfers] = useState([]);
+  // Debt transfer to another supplier or to a customer (shared dialog).
+  const [showTransferModal, setShowTransferModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [printing, startPrint] = usePrint();
@@ -103,18 +108,20 @@ export function SupplierDetailsPage() {
     setLoading(true);
     setNotFound(false);
     try {
-      const [supplierRes, purchasesRes, paymentsRes, returnsRes, receiptsRes] = await Promise.all([
+      const [supplierRes, purchasesRes, paymentsRes, returnsRes, receiptsRes, transfersRes] = await Promise.all([
         suppliersApi.getSupplier(id),
         purchasesApi.listPurchases({ supplierId: id, limit: HISTORY_LIMIT }),
         supplierPaymentsApi.listSupplierPayments({ supplierId: id, limit: HISTORY_LIMIT }),
         purchaseReturnsApi.listPurchaseReturns({ supplierId: id, limit: HISTORY_LIMIT }),
         supplierCreditReceiptsApi.listSupplierCreditReceipts({ supplierId: id, limit: HISTORY_LIMIT }),
+        customerDebtTransfersApi.listCustomerDebtTransfers({ supplierId: id, limit: HISTORY_LIMIT }),
       ]);
       setSupplier(supplierRes.data);
       setPurchases(purchasesRes.data);
       setPayments(paymentsRes.data);
       setReturns(returnsRes.data);
       setReceipts(receiptsRes.data);
+      setTransfers(transfersRes.data);
     } catch (err) {
       if (err.status === 404) setNotFound(true);
       else toast.error(err.message || 'تعذر تحميل بيانات المورد');
@@ -382,6 +389,14 @@ export function SupplierDetailsPage() {
               <Printer size={15} /> طباعة كشف حساب
             </button>
             <button
+              onClick={() => setShowTransferModal(true)}
+              disabled={!(t.creditOwed > 0)}
+              title={!(t.creditOwed > 0) ? 'لا توجد مديونية على هذا المورد لنقلها (المديونية هنا = مبلغ مستحق على المورد للمحل)' : 'نقل جزء من المديونية أو كلها إلى مورد آخر أو عميل (مش سداد ومش بيأثر على الصندوق)'}
+              className={`${btnOutline} !h-9`}
+            >
+              <ArrowLeftRight size={15} /> نقل مديونية
+            </button>
+            <button
               onClick={openObModal}
               title="تصحيح الرصيد الافتتاحي — لو حصل غلط في الرقم المنقول من الدفاتر القديمة"
               className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -391,7 +406,7 @@ export function SupplierDetailsPage() {
           </div>
         </div>
 
-        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
+        <div className={`mt-5 grid grid-cols-2 gap-3 ${t.creditOwed > 0 ? 'sm:grid-cols-6' : t.returned > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} ${t.openingBalance?.amount > 0 || t.transferredIn > 0 || t.transferredOut > 0 ? '!grid-cols-3 sm:!grid-cols-7' : ''}`}>
           {t.openingBalance?.amount > 0 && (
             <div className="rounded-lg bg-blue-50 p-3" title="رصيد منقول من الدفاتر قبل استخدام النظام">
               <div className="text-xs text-muted-foreground">
@@ -422,6 +437,18 @@ export function SupplierDetailsPage() {
             <div className="rounded-lg bg-emerald-50 p-3" title="مبلغ زائد ناتج عن مرتجع بقيمة أكبر من المستحق للمورد — مستحق لنا منه">
               <div className="text-xs text-muted-foreground">رصيد مستحق لنا من المورد</div>
               <div className="mt-1 text-lg font-bold text-emerald-700">{fmtMoney(t.creditOwed)}</div>
+            </div>
+          )}
+          {t.transferredIn > 0 && (
+            <div className="rounded-lg bg-violet-50 p-3" title="مديونية اتنقلت لهذا المورد من عميل أو مورد آخر — مش فاتورة ومش سداد">
+              <div className="text-xs text-muted-foreground">مديونية منقولة إليه</div>
+              <div className="mt-1 text-lg font-bold text-violet-700">{fmtMoney(t.transferredIn)}</div>
+            </div>
+          )}
+          {t.transferredOut > 0 && (
+            <div className="rounded-lg bg-violet-50 p-3" title="مديونية اتنقلت من هذا المورد لعميل أو مورد آخر — مش سداد ومدخلتش الصندوق">
+              <div className="text-xs text-muted-foreground">مديونية منقولة منه</div>
+              <div className="mt-1 text-lg font-bold text-violet-700">{fmtMoney(t.transferredOut)}</div>
             </div>
           )}
           <div className="rounded-lg bg-muted/40 p-3">
@@ -540,6 +567,52 @@ export function SupplierDetailsPage() {
         </div>
       )}
 
+      {/* Debt transfers this supplier took part in — as source or destination.
+          Not a purchase, not a payment, never touches the cashbox: it only
+          moves who owes the money. Permanent by design (no delete button): a
+          wrong transfer is corrected by transferring back. */}
+      {transfers.length > 0 && (
+        <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-4 py-3">
+            <h3 className="text-sm font-semibold text-foreground">سجل نقل المديونية</h3>
+          </div>
+          <table className="w-full text-start">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className={thCls}>التاريخ والوقت</th>
+                <th className={thCls}>العملية</th>
+                <th className={thCls}>المبلغ المنقول</th>
+                <th className={thCls}>رصيده بعد العملية</th>
+                <th className={thCls}>ملاحظة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transfers.map((tr) => {
+                const isOut = tr.fromSupplierId === id;
+                return (
+                  <tr key={tr._id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                    <td className={`${tdCls} text-muted-foreground`}>{fmtDateTime(tr.date)}</td>
+                    <td className={tdCls}>
+                      {isOut
+                        ? <>منقولة إلى <b className="text-foreground">{tr.toName}</b> <span className="text-muted-foreground">({tr.toType === 'customer' ? 'عميل' : 'مورد'})</span></>
+                        : <>منقولة من <b className="text-foreground">{tr.fromName}</b> <span className="text-muted-foreground">({tr.fromType === 'customer' ? 'عميل' : 'مورد'})</span></>}
+                    </td>
+                    <td className={`${tdCls} font-mono font-semibold ${isOut ? 'text-emerald-600' : 'text-violet-700'}`}>
+                      {isOut ? '−' : '+'} {fmtMoney(tr.amount)}
+                    </td>
+                    <td className={`${tdCls} font-mono`}>{describeOwes('supplier', isOut ? tr.fromBalanceAfter : tr.toBalanceAfter)}</td>
+                    <td className={`${tdCls} text-muted-foreground`}>{tr.note || '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
+            النقل ده مش سداد ومش فاتورة ومش بيأثر على الصندوق، والفواتير القديمة لسه باسم صاحبها الأصلي. العملية مثبتة ومش بتتحذف — لتصحيح نقل غلط، سجّل نقل عكسي.
+          </p>
+        </div>
+      )}
+
       {/* Returns history — standalone from the purchases above: each row
           here sends stock back OUT to the supplier and reduces our running
           balance without changing the original purchase's own recorded
@@ -575,6 +648,16 @@ export function SupplierDetailsPage() {
         </table>
         {returns.length === 0 && <Empty text="لا توجد مرتجعات مسجلة لهذا المورد" />}
       </div>
+
+      {/* Debt transfer — moves part or all of what this supplier owes the shop
+          to another supplier or to a customer. Not a payment: nothing enters
+          or leaves the cashbox. The server re-validates every rule. */}
+      <DebtTransferModal
+        open={showTransferModal}
+        onClose={() => setShowTransferModal(false)}
+        source={{ type: 'supplier', id, name: supplier.name, available: t.creditOwed || 0 }}
+        onDone={load}
+      />
 
       {/* Record payment modal */}
       <Modal open={showPaymentModal} onClose={closePaymentModal} title="تسجيل سداد">
@@ -1044,9 +1127,40 @@ export function SupplierDetailsPage() {
               </>
             )}
 
+            {transfers.length > 0 && (
+              <>
+                <h2 className="mb-2 mt-6 text-base font-bold">سجل نقل المديونية</h2>
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-black/20">
+                      <th className="p-2 text-start">التاريخ والوقت</th>
+                      <th className="p-2 text-start">العملية</th>
+                      <th className="p-2 text-start">المبلغ المنقول</th>
+                      <th className="p-2 text-start">الرصيد بعد العملية</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transfers.map((tr) => {
+                      const isOut = tr.fromSupplierId === id;
+                      return (
+                        <tr key={tr._id} className="border-b border-black/10">
+                          <td className="p-2">{fmtDateTime(tr.date)}</td>
+                          <td className="p-2">{isOut ? `منقولة إلى ${tr.toName} (${tr.toType === 'customer' ? 'عميل' : 'مورد'})` : `منقولة من ${tr.fromName} (${tr.fromType === 'customer' ? 'عميل' : 'مورد'})`}</td>
+                          <td className="p-2 font-mono">{isOut ? '−' : '+'} {fmtMoney(tr.amount)}</td>
+                          <td className="p-2 font-mono">{describeOwes('supplier', isOut ? tr.fromBalanceAfter : tr.toBalanceAfter)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </>
+            )}
+
             <div className="mt-4 flex justify-end gap-8 text-sm font-bold">
               <span>الإجمالي: {fmtMoney(t.total)}</span>
               <span>المدفوع: {fmtMoney(t.paid)}</span>
+              {t.transferredIn > 0 && <span>مديونية منقولة إليه: {fmtMoney(t.transferredIn)}</span>}
+              {t.transferredOut > 0 && <span>مديونية منقولة منه: {fmtMoney(t.transferredOut)}</span>}
               <span>المتبقي: {fmtMoney(t.remaining)}</span>
               {t.creditOwed > 0 && <span>المستحق من المورد: {fmtMoney(t.creditOwed)}</span>}
             </div>
