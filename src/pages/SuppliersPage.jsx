@@ -102,9 +102,12 @@ export function SuppliersPage() {
       <Helmet><title>الموردون — نظام إدارة المحل</title><meta name="description" content="إدارة الموردين وأرصدتهم" /></Helmet>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className={`grid grid-cols-1 gap-3 ${summary?.totalCreditOwed > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
         <Stat icon={Truck} title="إجمالي الموردين" value={summary?.count ?? '—'} tone="bg-blue-100 text-blue-700" />
         <Stat icon={Wallet} title="إجمالي المستحق للموردين" value={fmtMoney(summary?.totalOutstanding ?? 0)} tone="bg-amber-100 text-amber-700" />
+        {summary?.totalCreditOwed > 0 && (
+          <Stat icon={Wallet} title="إجمالي المستحق من الموردين" value={fmtMoney(summary.totalCreditOwed)} tone="bg-emerald-100 text-emerald-700" />
+        )}
         <Stat icon={AlertTriangle} title="موردون عليهم مستحقات" value={summary?.withBalanceCount ?? '—'} tone="bg-red-100 text-red-700" />
       </div>
 
@@ -146,7 +149,9 @@ export function SuppliersPage() {
                   <td className={tdCls}>
                     {t.remaining > 0
                       ? <span className="font-semibold text-destructive">{fmtMoney(t.remaining)}</span>
-                      : <span className="text-muted-foreground">—</span>
+                      : t.creditOwed > 0
+                        ? <span className="font-semibold text-emerald-700" title="مبلغ مستحق على المورد للمحل">مستحق منه: {fmtMoney(t.creditOwed)}</span>
+                        : <span className="text-muted-foreground">—</span>
                     }
                   </td>
                   <td className={`${tdCls} text-muted-foreground`}>{t.lastPurchase ? fmtDate(t.lastPurchase) : '—'}</td>

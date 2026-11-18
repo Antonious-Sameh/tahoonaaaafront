@@ -46,7 +46,14 @@ export function ActivityPage() {
             )}
             {rows.map((a) => (
               <tr key={a._id} className="border-b last:border-0 hover:bg-muted/40">
-                <td className={tdCls}><Badge tone="slate">{ACTIVITY_TYPE_LABELS[a.type] || a.type}</Badge></td>
+                <td className={tdCls}>
+                  {/* A transfer between a customer and a supplier is ONE entry listed under both kinds. */}
+                  <div className="flex flex-wrap gap-1">
+                    {(a.relatedTypes?.length ? a.relatedTypes : [a.type]).map((t) => (
+                      <Badge key={t} tone="slate">{ACTIVITY_TYPE_LABELS[t] || t}</Badge>
+                    ))}
+                  </div>
+                </td>
                 <td className={tdCls}>{a.description}</td>
                 <td className={tdCls}>{a.amount > 0 ? fmtMoney(a.amount) : '—'}</td>
                 <td className={tdCls}>{fmtDate(a.date)}</td>

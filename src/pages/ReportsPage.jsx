@@ -133,7 +133,11 @@ export function ReportsPage() {
     ];
     if (tab === 'suppliers' && suppliersReport) return [
       ['عدد الموردين', fmtNum(suppliersReport.count)],
-      ['إجمالي الأرصدة المستحقة', fmtMoney(suppliersReport.totalOutstanding)],
+      ['إجمالي المستحق للموردين', fmtMoney(suppliersReport.totalOutstanding)],
+      ...(suppliersReport.totalCreditOwed > 0 ? [
+        ['إجمالي المستحق من الموردين', fmtMoney(suppliersReport.totalCreditOwed)],
+        ['صافي أرصدة الموردين', fmtMoney(suppliersReport.netOutstanding)],
+      ] : []),
     ];
     return [];
   }, [tab, salesReport, purchasesReport, profitReport, inventoryReport, customersReport, suppliersReport]);
@@ -165,14 +169,14 @@ export function ReportsPage() {
       return {
         title: 'أعلى الموردين تعاملاً',
         headers: ['المورد', 'إجمالي المشتريات', 'المدفوع', 'المتبقي'],
-        rows: suppliersReport.topSuppliers.map((s) => [s.name, fmtMoney(s.total), fmtMoney(s.paid), s.remaining > 0 ? fmtMoney(s.remaining) : '—']),
+        rows: suppliersReport.topSuppliers.map((s) => [s.name, fmtMoney(s.total), fmtMoney(s.paid), s.remaining > 0 ? fmtMoney(s.remaining) : s.creditOwed > 0 ? `مستحق منه: ${fmtMoney(s.creditOwed)}` : '—']),
       };
     }
     if (tab === 'purchases' && purchasesReport?.supplierBalances?.length) {
       return {
         title: 'أرصدة الموردين',
         headers: ['المورد', 'إجمالي المشتريات', 'المدفوع', 'المتبقي'],
-        rows: purchasesReport.supplierBalances.map((s) => [s.name, fmtMoney(s.total), fmtMoney(s.paid), s.remaining > 0 ? fmtMoney(s.remaining) : '—']),
+        rows: purchasesReport.supplierBalances.map((s) => [s.name, fmtMoney(s.total), fmtMoney(s.paid), s.remaining > 0 ? fmtMoney(s.remaining) : s.creditOwed > 0 ? `مستحق منه: ${fmtMoney(s.creditOwed)}` : '—']),
       };
     }
     return null;
@@ -252,7 +256,7 @@ export function ReportsPage() {
             {purchasesReport.supplierBalances.length === 0 ? <Empty text="لا يوجد موردون" /> : (
               <table className="w-full">
                 <thead><tr className="border-b"><th className={thCls}>المورد</th><th className={thCls}>إجمالي المشتريات</th><th className={thCls}>المدفوع</th><th className={thCls}>المتبقي</th></tr></thead>
-                <tbody>{purchasesReport.supplierBalances.map((s) => <tr key={s._id} className="border-b last:border-0"><td className={tdCls}>{s.name}</td><td className={tdCls}>{fmtMoney(s.total)}</td><td className={tdCls}>{fmtMoney(s.paid)}</td><td className={tdCls}>{s.remaining > 0 ? <span className="font-semibold text-destructive">{fmtMoney(s.remaining)}</span> : '—'}</td></tr>)}</tbody>
+                <tbody>{purchasesReport.supplierBalances.map((s) => <tr key={s._id} className="border-b last:border-0"><td className={tdCls}>{s.name}</td><td className={tdCls}>{fmtMoney(s.total)}</td><td className={tdCls}>{fmtMoney(s.paid)}</td><td className={tdCls}>{s.remaining > 0 ? <span className="font-semibold text-destructive">{fmtMoney(s.remaining)}</span> : s.creditOwed > 0 ? <span className="font-semibold text-emerald-700">مستحق منه: {fmtMoney(s.creditOwed)}</span> : '—'}</td></tr>)}</tbody>
               </table>
             )}
           </div>
@@ -368,15 +372,27 @@ export function ReportsPage() {
         <div className="grid gap-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <Stat title="عدد الموردين" value={fmtNum(suppliersReport.count)} icon={Truck} tone="bg-blue-100 text-blue-700" />
-            <Stat title="إجمالي الأرصدة المستحقة" value={fmtMoney(suppliersReport.totalOutstanding)} icon={AlertTriangle} tone="bg-red-100 text-red-700" />
+            <Stat title="إجمالي المستحق للموردين" value={fmtMoney(suppliersReport.totalOutstanding)} icon={AlertTriangle} tone="bg-red-100 text-red-700" />
             <Stat title="موردون لهم أرصدة" value={fmtNum(suppliersReport.withBalanceCount)} icon={Truck} tone="bg-amber-100 text-amber-700" />
+            {suppliersReport.totalCreditOwed > 0 && (
+              <>
+                <Stat title="إجمالي المستحق من الموردين" value={fmtMoney(suppliersReport.totalCreditOwed)} icon={Truck} tone="bg-emerald-100 text-emerald-700" />
+                <Stat title="موردون عليهم مستحقات للمحل" value={fmtNum(suppliersReport.withCreditCount)} icon={Truck} tone="bg-emerald-100 text-emerald-700" />
+                <Stat title="صافي أرصدة الموردين" value={fmtMoney(suppliersReport.netOutstanding)} icon={Wallet} tone="bg-slate-100 text-slate-700" />
+              </>
+            )}
           </div>
+          {suppliersReport.totalCreditOwed > 0 && (
+            <p className="-mt-2 text-xs text-muted-foreground">
+              "المستحق للموردين" = ما على المحل لهم. "المستحق من الموردين" = ما عليهم للمحل (مثلاً مديونية منقولة إليهم أو مرتجع أكبر من المستحق). الصافي = الأول ناقص الثاني، وكل مورد محسوب في جهة واحدة فقط.
+            </p>
+          )}
           <div className="rounded-xl border bg-card p-4">
             <h3 className="mb-3 font-bold">أعلى الموردين تعاملاً</h3>
             {suppliersReport.topSuppliers.length === 0 ? <Empty text="لا يوجد موردون" /> : (
               <table className="w-full">
                 <thead><tr className="border-b"><th className={thCls}>المورد</th><th className={thCls}>إجمالي المشتريات</th><th className={thCls}>المدفوع</th><th className={thCls}>المتبقي</th></tr></thead>
-                <tbody>{suppliersReport.topSuppliers.map((s) => <tr key={s._id} className="border-b last:border-0"><td className={tdCls}>{s.name}</td><td className={tdCls}>{fmtMoney(s.total)}</td><td className={tdCls}>{fmtMoney(s.paid)}</td><td className={tdCls}>{s.remaining > 0 ? <span className="font-semibold text-destructive">{fmtMoney(s.remaining)}</span> : '—'}</td></tr>)}</tbody>
+                <tbody>{suppliersReport.topSuppliers.map((s) => <tr key={s._id} className="border-b last:border-0"><td className={tdCls}>{s.name}</td><td className={tdCls}>{fmtMoney(s.total)}</td><td className={tdCls}>{fmtMoney(s.paid)}</td><td className={tdCls}>{s.remaining > 0 ? <span className="font-semibold text-destructive">{fmtMoney(s.remaining)}</span> : s.creditOwed > 0 ? <span className="font-semibold text-emerald-700">مستحق منه: {fmtMoney(s.creditOwed)}</span> : '—'}</td></tr>)}</tbody>
               </table>
             )}
           </div>

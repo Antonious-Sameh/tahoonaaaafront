@@ -38,6 +38,9 @@ export function DashboardPage() {
   const [todayExpensesTotal, setTodayExpensesTotal] = useState(0);
   const [custDebt, setCustDebt] = useState(0);
   const [suppDebt, setSuppDebt] = useState(0);
+  // What suppliers owe the shop (e.g. debt transferred onto a supplier) — the
+  // opposite direction from suppDebt, shown only when there is any.
+  const [suppCredit, setSuppCredit] = useState(0);
   const [lowStock, setLowStock] = useState([]);
   const [loadingStats, setLoadingStats] = useState(true);
 
@@ -88,7 +91,10 @@ export function DashboardPage() {
         if (purchasesR.status === 'fulfilled') setTodayPurchasesTotal(purchasesR.value.data.total);
         if (expensesR.status === 'fulfilled') setTodayExpensesTotal(expensesR.value.data.todayTotal);
         if (custR.status === 'fulfilled') setCustDebt(custR.value.data.totalOutstanding);
-        if (suppR.status === 'fulfilled') setSuppDebt(suppR.value.data.totalOutstanding);
+        if (suppR.status === 'fulfilled') {
+          setSuppDebt(suppR.value.data.totalOutstanding);
+          setSuppCredit(suppR.value.data.totalCreditOwed || 0);
+        }
         if (outR.status === 'fulfilled' && lowR.status === 'fulfilled') {
           setLowStock([...outR.value.data, ...lowR.value.data]);
         } else if (outR.status === 'fulfilled') {
@@ -145,6 +151,9 @@ export function DashboardPage() {
         <Stat title="مصروفات اليوم" value={loadingStats ? '—' : fmtMoney(todayExpensesTotal)} icon={Receipt} tone="bg-red-100 text-red-700" />
         <Stat title="مستحقات العملاء" value={loadingStats ? '—' : fmtMoney(custDebt)} icon={Users} tone="bg-amber-100 text-amber-700" />
         <Stat title="مستحقات الموردين" value={loadingStats ? '—' : fmtMoney(suppDebt)} icon={Truck} tone="bg-orange-100 text-orange-700" />
+        {!loadingStats && suppCredit > 0 && (
+          <Stat title="مستحق من الموردين" value={fmtMoney(suppCredit)} icon={Truck} tone="bg-emerald-100 text-emerald-700" />
+        )}
       </div>
 
       {/* Quick actions */}
